@@ -20,6 +20,7 @@ const OPTIONS: EditorOptions = {
   text_backgrounds: ["none"],
   font_families: ["sans_bold"],
   styles: ["product_showcase"],
+  subtitle_styles: [],
 };
 
 const IMAGE: MediaItem = {

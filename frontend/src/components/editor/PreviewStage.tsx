@@ -10,7 +10,13 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import type { AudioTrack, Scene, VideoFormat, VoiceOver } from "@/lib/api/types";
+import type {
+  AudioTrack,
+  Scene,
+  SubtitleStyleKey,
+  VideoFormat,
+  VoiceOver,
+} from "@/lib/api/types";
 import { PreviewPlayer } from "@/lib/video/player";
 import { FORMAT_DIMENSIONS, buildTimeline, formatTime } from "@/lib/video/timeline";
 import { useEditorStore } from "@/lib/store/editor";
@@ -28,12 +34,14 @@ export function PreviewStage({
   format,
   audio,
   voiceOver,
+  subtitleStyle,
   className,
 }: {
   scenes: Scene[];
   format: VideoFormat;
   audio: AudioTrack | null;
   voiceOver: VoiceOver | null;
+  subtitleStyle?: SubtitleStyleKey;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,6 +95,15 @@ export function PreviewStage({
     const url = voiceOver?.enabled ? (voiceOver.media?.url ?? null) : null;
     playerRef.current?.setVoiceOver(url, voiceOver?.volume ?? 1);
   }, [voiceOver]);
+
+  // After `setScenes`, because the cue list is clipped to the video's length.
+  useEffect(() => {
+    playerRef.current?.setSubtitles(
+      subtitleStyle,
+      voiceOver?.enabled ? voiceOver.word_timings : undefined,
+      voiceOver?.script ?? "",
+    );
+  }, [subtitleStyle, voiceOver?.enabled, voiceOver?.word_timings, voiceOver?.script, scenes]);
 
   useEffect(() => {
     playerRef.current?.setMuted(muted);

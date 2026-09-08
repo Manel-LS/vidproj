@@ -10,6 +10,8 @@ export type Platform = "tiktok" | "instagram_reels" | "youtube_shorts" | "instag
 export type GenerationMode = "standard" | "ai_motion";
 /** Tunisian derja is deliberately separate from Modern Standard Arabic. */
 export type Language = "tn" | "ar" | "fr" | "en";
+/** Burned-in subtitle treatment; "none" means the video carries none. */
+export type SubtitleStyleKey = "none" | "clean" | "tiktok" | "bold" | "cinematic" | "minimal";
 
 export type VideoStyleKey =
   | "product_showcase"
@@ -255,6 +257,7 @@ export interface ProjectSummary {
 export interface ProjectDetail extends ProjectSummary {
   topic: string;
   fps: number;
+  subtitle_style: SubtitleStyleKey;
   /** Drives the planner's wording, the default voice and the subtitle direction. */
   language: Language;
   rtl: boolean;
@@ -512,6 +515,14 @@ export interface EditorOptions {
   text_backgrounds: TextBackground[];
   font_families: FontFamily[];
   styles: VideoStyleKey[];
+  /** Names and descriptions come from the server, so they cannot drift from what the renderer draws. */
+  subtitle_styles: SubtitleStyleOption[];
+}
+
+export interface SubtitleStyleOption {
+  key: SubtitleStyleKey;
+  name: string;
+  description: string;
 }
 
 export interface User {

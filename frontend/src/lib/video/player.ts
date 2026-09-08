@@ -9,9 +9,19 @@
  * It is framework-free on purpose — a React component (`PreviewStage`) owns the
  * canvas and drives this class, which keeps the render loop out of React's way.
  */
-import type { Scene, TransitionType } from "@/lib/api/types";
+import type { Scene, SubtitleStyleKey, TransitionType, WordTiming } from "@/lib/api/types";
 import { buildMotion, rotationAt, sourceRect, viewportAt } from "./animation";
 import { drawTextOverlay } from "./text";
+import {
+  activeIndex,
+  buildCues,
+  cueAt,
+  cuesFromSentences,
+  getSubtitlePreset,
+  parseWords,
+  type SubtitleCue,
+  type SubtitlePreset,
+} from "./subtitles";
 import { buildTimeline, frameAt, totalDuration, type TimelineScene } from "./timeline";
 
 export interface PlayerOptions {
@@ -45,6 +55,9 @@ export class PreviewPlayer {
   private voice: HTMLAudioElement | null = null;
   private muted = false;
   private volume = 1;
+
+  private subtitlePreset: SubtitlePreset | null = null;
+  private cues: SubtitleCue[] = [];
 
   private onTime?: (time: number) => void;
   private onEnded?: () => void;
@@ -80,6 +93,35 @@ export class PreviewPlayer {
     this.duration = totalDuration(scenes);
     if (this.time > this.duration) this.seek(this.duration);
     this.preload(scenes);
+    this.draw();
+  }
+
+  /**
+   * The subtitle band, built from the same numbers the renderer uses.
+   *
+   * Cues are computed once here rather than per frame: the grouping does not
+   * depend on the playhead, and redoing it sixty times a second would be the one
+   * expensive thing in an otherwise cheap loop.
+   */
+  setSubtitles(
+    style: SubtitleStyleKey | undefined,
+    words: WordTiming[] | undefined,
+    script = "",
+  ) {
+    this.subtitlePreset = getSubtitlePreset(style);
+    if (!this.subtitlePreset) {
+      this.cues = [];
+      this.draw();
+      return;
+    }
+    const parsed = parseWords(words);
+    this.cues = parsed.length
+      ? buildCues(parsed, {
+          maxChars: this.subtitlePreset.maxChars,
+          maxWords: this.subtitlePreset.maxWords,
+          limit: this.duration || undefined,
+        })
+      : cuesFromSentences(script, this.duration);
     this.draw();
   }
 
@@ -288,7 +330,134 @@ export class PreviewPlayer {
       this.drawScene(ctx, state.current, this.time - state.current.start, 1);
     }
 
+    // Subtitles sit on the finished frame, above the scene and its text, exactly
+    // as the renderer overlays them after the transition chain.
+    this.drawSubtitles(ctx);
+
     ctx.restore();
+  }
+
+  /**
+   * The subtitle card for the current instant.
+   *
+   * A simplified mirror of `subtitle_renderer.py`: same cards, same lit word, same
+   * band position. It does not try to match the rasteriser glyph for glyph — the
+   * canvas has no control over hinting or the exact font file — but the things a
+   * user judges from a preview (which words, when, where, which one is lit) come
+   * from the shared engine, so they agree.
+   */
+  private drawSubtitles(ctx: CanvasRenderingContext2D) {
+    const preset = this.subtitlePreset;
+    if (!preset || !this.cues.length) return;
+    const cue = cueAt(this.cues, this.time);
+    if (!cue) return;
+
+    const { frameWidth: width, frameHeight: height } = this;
+    const scale = width / 1080;
+    const fontSize = preset.fontSize * scale;
+    const lit = activeIndex(cue, this.time);
+    const rtl = /[֐-ࣿיִ-﷿ﹰ-﻿]/.test(
+      cue.words.map((w) => w.text).join(""),
+    );
+
+    ctx.save();
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    const font = (size: number) => `700 ${size}px system-ui, "Segoe UI", sans-serif`;
+
+    const label = (text: string) => (preset.uppercase ? text.toUpperCase() : text);
+    ctx.font = font(fontSize);
+    const spaceWidth =
+      ctx.measureText(" ").width + (preset.activeBackground ? preset.fontSize * 0.34 * scale * 2 : 0);
+
+    // Wrap into lines the same way the rasteriser does: by measured width.
+    const maxWidth = width * preset.maxWidthPct;
+    const rows: { text: string; index: number; width: number }[][] = [[]];
+    let used = 0;
+    cue.words.forEach((word, index) => {
+      const text = label(word.text);
+      const w = ctx.measureText(text).width;
+      const extra = rows[rows.length - 1].length ? spaceWidth + w : w;
+      if (rows[rows.length - 1].length && used + extra > maxWidth) {
+        rows.push([]);
+        used = 0;
+      }
+      rows[rows.length - 1].push({ text, index, width: w });
+      used += rows[rows.length - 1].length === 1 ? w : extra;
+    });
+
+    const lineHeight = fontSize * preset.lineHeight;
+    const blockHeight = lineHeight * rows.length;
+    const bandHeight = blockHeight + 28 * scale * 2;
+    const bandTop = Math.max(
+      0,
+      Math.min(preset.positionY * height - bandHeight / 2, height - bandHeight),
+    );
+
+    if (preset.backgroundOpacity > 0) {
+      if (preset.gradientBackground) {
+        const gradient = ctx.createLinearGradient(0, bandTop, 0, bandTop + bandHeight);
+        gradient.addColorStop(0, this.rgba(preset.backgroundColor, 0));
+        gradient.addColorStop(1, this.rgba(preset.backgroundColor, preset.backgroundOpacity));
+        ctx.fillStyle = gradient;
+      } else {
+        ctx.fillStyle = this.rgba(preset.backgroundColor, preset.backgroundOpacity);
+      }
+      ctx.fillRect(0, bandTop, width, bandHeight);
+    }
+
+    const top = bandTop + (bandHeight - blockHeight) / 2;
+    rows.forEach((row, rowIndex) => {
+      const total = row.reduce((sum, item) => sum + item.width, 0) + spaceWidth * (row.length - 1);
+      let cursor = (width - total) / 2;
+      const ordered = rtl ? [...row].reverse() : row;
+      ordered.forEach((item) => {
+        const isLit = item.index === lit;
+        const size = isLit && preset.activeScale !== 1 ? fontSize * preset.activeScale : fontSize;
+        ctx.font = font(size);
+        const drawn = ctx.measureText(item.text).width;
+        const x = cursor - (drawn - item.width) / 2;
+        const y = top + rowIndex * lineHeight - (size - fontSize) * 0.5;
+
+        if (isLit && preset.activeBackground) {
+          const padX = preset.fontSize * 0.34 * scale;
+          const padY = preset.fontSize * 0.08 * scale;
+          ctx.fillStyle = preset.activeBackground;
+          ctx.beginPath();
+          const box = [x - padX, y - padY, drawn + padX * 2, size * 1.2 + padY * 2] as const;
+          // `roundRect` is recent; a square pill is a far better fallback than a
+          // preview that throws mid-frame on an older browser.
+          if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(...box, preset.fontSize * 0.22 * scale);
+          } else {
+            ctx.rect(...box);
+          }
+          ctx.fill();
+        } else if (preset.outlinePx) {
+          ctx.lineWidth = preset.outlinePx * scale * 2;
+          ctx.strokeStyle = this.rgba(preset.outlineColor, isLit ? 1 : preset.inactiveOpacity);
+          ctx.lineJoin = "round";
+          ctx.strokeText(item.text, x, y);
+        }
+
+        ctx.fillStyle = this.rgba(
+          isLit ? preset.activeColor : preset.color,
+          isLit ? 1 : preset.inactiveOpacity,
+        );
+        ctx.fillText(item.text, x, y);
+        cursor += item.width + spaceWidth;
+      });
+    });
+    ctx.restore();
+  }
+
+  private rgba(hex: string, alpha: number): string {
+    const value = hex.replace("#", "");
+    const full = value.length === 3 ? value.split("").map((c) => c + c).join("") : value;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
   private drawEmptyState(ctx: CanvasRenderingContext2D, width: number, height: number) {

@@ -16,6 +16,7 @@ const OPTIONS: EditorOptions = {
   text_backgrounds: ["none", "box", "pill", "gradient"],
   font_families: ["sans_bold", "sans", "serif"],
   styles: ["product_showcase", "tiktok_trend"],
+  subtitle_styles: [],
 };
 
 const IMAGE: MediaItem = {

@@ -468,6 +468,7 @@ function Editor() {
             capabilities={capabilities.data}
             styles={styles.data ?? []}
             templates={templates.data?.items ?? []}
+            options={options.data}
             images={images}
             busy={busy}
             uploadProgress={uploadProgress}
@@ -497,6 +498,7 @@ function Editor() {
               format={data.format}
               audio={data.audio}
               voiceOver={data.voice_over}
+              subtitleStyle={data.subtitle_style}
             />
           </div>
 

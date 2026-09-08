@@ -18,9 +18,11 @@ import { Badge, Notice, Spinner } from "@/components/ui/Feedback";
 import { Dropzone } from "@/components/media/Dropzone";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { LanguageSelect } from "@/components/editor/LanguageSelect";
+import { SubtitleStyleSelect } from "@/components/editor/SubtitleStyleSelect";
 import { api } from "@/lib/api/client";
 import type {
   Capabilities,
+  EditorOptions,
   MediaItem,
   ProjectDetail,
   StylePreset,
@@ -43,6 +45,7 @@ export interface LeftPanelProps {
   capabilities: Capabilities | undefined;
   styles: StylePreset[];
   templates: TemplateSummary[];
+  options: EditorOptions | undefined;
   images: MediaItem[];
   busy: boolean;
   uploadProgress: number;
@@ -449,6 +452,7 @@ function AudioTab({
 function AiTab({
   project,
   capabilities,
+  options,
   styles,
   planning,
   busy,
@@ -511,6 +515,14 @@ function AiTab({
           project={project}
           disabled={busy}
           onChange={(characterId) => onUpdateProject({ character_id: characterId })}
+        />
+
+        <SubtitleStyleSelect
+          project={project}
+          options={options?.subtitle_styles}
+          capabilities={capabilities}
+          disabled={busy}
+          onChange={(subtitle_style) => onUpdateProject({ subtitle_style })}
         />
 
         <Select
