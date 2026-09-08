@@ -17,6 +17,9 @@ venv/
 # Runtime data (uploads, renders, sqlite db, temp work dirs)
 backend/var/
 backend/.env
+# ...and any copy of it. A backup made before a config change is still config.
+backend/.env.*
+.env.*.bak
 
 # Node / Next.js
 node_modules/
