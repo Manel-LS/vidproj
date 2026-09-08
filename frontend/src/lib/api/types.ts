@@ -471,6 +471,8 @@ export interface Capabilities {
     supported_aspect_ratios: string[];
     supports_reference_image: boolean;
   };
+  /** Local, CPU-only depth estimation for true 2.5D parallax. No API, no cost. */
+  depth: ProviderStatus;
   lipsync: ProviderStatus & {
     max_clip_seconds: number;
     needs_public_urls: boolean;

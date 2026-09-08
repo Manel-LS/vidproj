@@ -15,7 +15,7 @@ generation of compression.
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core.config import settings
@@ -30,6 +30,9 @@ from app.domain.subtitles import (
     get_subtitle_preset,
     parse_words,
 )
+from app.infrastructure.depth.base import DepthUnavailable
+from app.infrastructure.depth.factory import get_depth_provider
+from app.infrastructure.imaging.parallax import ParallaxLayer, build_parallax_layers
 from app.infrastructure.imaging.subtitle_renderer import (
     SubtitleTrackAsset,
     render_subtitle_track,
@@ -71,7 +74,48 @@ _ROTATION_OVERSCAN = 1.12
 
 
 def _even(value: float) -> int:
+    """H.264 needs even dimensions; odd ones are rejected by the encoder."""
     return max(2, int(round(value / 2)) * 2)
+
+
+#: How much the planes separate, as a fraction of the base move.
+#:
+#: Applied to the **zoom**, not to the pan. The pan cannot carry it: the camera
+#: paths this engine builds are already clamped to the edge of the source
+#: (`span = min(0.10 * intensity, 0.5 - half)`), so asking a near plane to travel
+#: further is silently clamped straight back — measured, and the effect was
+#: invisible until this moved to zoom. Zoom has headroom, and a plane that
+#: magnifies more also gains pan headroom as a side effect.
+#:
+#: 0.30 puts roughly six percent between the nearest and furthest plane by the end
+#: of a shot. Below ~0.15 nobody sees it; above ~0.5 the planes visibly slide.
+PARALLAX_SEPARATION = 0.30
+
+
+def _plane_motion(motion: Motion, depth_offset: float) -> Motion:
+    """The scene's camera move, differentiated for one depth plane.
+
+    `depth_offset` is the plane's depth minus the mean, so it is negative for
+    planes behind the subject and positive for those in front.
+
+    Both ends are *not* scaled: the start is left alone so every plane opens on
+    exactly the original photograph, and they separate as the shot progresses.
+    Offsetting them at frame one would show the picture already broken into
+    slabs, which reads as a printing fault rather than as depth.
+    """
+    import dataclasses
+
+    factor = 1.0 + PARALLAX_SEPARATION * depth_offset
+    start, end = motion.start, motion.end
+    scaled_end = dataclasses.replace(
+        end,
+        # A near plane ends larger than it began, a far plane smaller. This is the
+        # separation; the pan below only adds to it where the crop allows.
+        zoom=max(1.0, start.zoom * factor),
+        cx=start.cx + (end.cx - start.cx) * factor,
+        cy=start.cy + (end.cy - start.cy) * factor,
+    )
+    return dataclasses.replace(motion, end=scaled_end)
 
 
 @dataclass
@@ -85,6 +129,9 @@ class _SceneAssets:
     text_layers: list[TextLayerAsset]
     clip_path: Path
     video_source: Path | None = None  # an AI Motion clip, when one was generated
+    #: Depth planes for true 2.5D parallax. Empty means the scene falls back to
+    #: the flat camera move, which is what every scene did before depth existed.
+    parallax_layers: list[ParallaxLayer] = field(default_factory=list)
 
 
 class FFmpegRenderEngine(RenderEngine):
@@ -196,6 +243,8 @@ class FFmpegRenderEngine(RenderEngine):
                     scene.animation, intensity=scene.animation_intensity, focus=new_focus
                 )
 
+            parallax_layers = self._prepare_parallax(scene, image_path, work, index)
+
             layers: list[TextLayerAsset] = []
             for text_index, overlay in enumerate(scene.texts):
                 layers.append(
@@ -220,11 +269,45 @@ class FFmpegRenderEngine(RenderEngine):
                     text_layers=layers,
                     clip_path=work / "clips" / f"scene-{index:03d}.mp4",
                     video_source=video_source,
+                    parallax_layers=parallax_layers,
                 )
             )
             self._report_span(on_progress, _STAGE_PREPARE, (index + 1) / len(plan.scenes), "Preparing images")
 
         return assets
+
+
+    def _prepare_parallax(
+        self, scene: PlanScene, image_path: Path, work: Path, index: int
+    ) -> list[ParallaxLayer]:
+        """Depth planes for a PARALLAX scene, when an estimator is configured.
+
+        Every failure here returns an empty list rather than raising. The scene
+        then animates exactly as it did before depth existed — a flatter shot is a
+        lesser result, a failed render is no result at all.
+
+        The depth is read from the *prepared* frame, which is the cover-cropped
+        photograph and nothing else. Text overlays are composited later, and a
+        model shown a frame that already carries them reads the caption panels as
+        physical objects and peels them off the picture.
+        """
+        if scene.animation is not AnimationType.PARALLAX:
+            return []
+
+        provider = get_depth_provider()
+        if not provider.is_available():
+            return []
+
+        try:
+            depth = provider.estimate(image_path)
+            return build_parallax_layers(
+                image_path, depth, work / "parallax" / f"scene-{index:03d}"
+            )
+        except DepthUnavailable as exc:
+            logger.info("Parallax unavailable for scene %s: %s", index + 1, exc)
+        except Exception:  # noqa: BLE001
+            logger.exception("Parallax preparation failed for scene %s", index + 1)
+        return []
 
     # -- stage A2: encode each scene -----------------------------------------
 
@@ -284,6 +367,12 @@ class FFmpegRenderEngine(RenderEngine):
                 f"trim=duration={asset.duration:.3f},setpts=PTS-STARTPTS,"
                 f"format=rgba,setsar=1[base]"
             )
+        elif asset.parallax_layers:
+            # True 2.5D: one input per depth plane, each sampled through its own
+            # camera window. Planes nearer the lens travel further, which is the
+            # entire effect — the picture stops being a postcard being pushed
+            # around and starts being a space the camera moves through.
+            args, chains = self._parallax_inputs(asset, plan, width, height)
         else:
             args += [
                 "-loop", "1",
@@ -305,8 +394,11 @@ class FFmpegRenderEngine(RenderEngine):
                 )
 
         current = "base"
+        # Text inputs come after every input the base consumed: one image, one clip,
+        # or one per depth plane.
+        base_inputs = max(1, len(asset.parallax_layers)) if asset.video_source is None else 1
         for layer_index, layer in enumerate(asset.text_layers):
-            input_index = layer_index + 1
+            input_index = layer_index + base_inputs
             if layer.is_sequence:
                 args += ["-framerate", str(layer.fps), "-i", layer.sequence_pattern]  # type: ignore[list-item]
             else:
@@ -338,6 +430,52 @@ class FFmpegRenderEngine(RenderEngine):
 
         chains.append(f"[{current}]format=yuv420p[vout]")
         return args, ";".join(chains)
+
+
+    def _parallax_inputs(
+        self, asset: _SceneAssets, plan: VideoPlan, width: int, height: int
+    ) -> tuple[list[str], list[str]]:
+        """One zoompan per depth plane, composited furthest first.
+
+        The differential is applied to the camera's *travel*, not to the plane's
+        position: each plane runs the same move scaled by how near it is, so they
+        start aligned and separate as the shot progresses. Displacing the planes
+        outright would show them misregistered on the very first frame, which reads
+        as a printing error rather than as depth.
+
+        Nothing can expose the frame edge either, because every plane is sampled by
+        its own zoompan and zoompan cannot sample outside its input.
+        """
+        args: list[str] = []
+        chains: list[str] = []
+        fps = plan.fps
+        layers = asset.parallax_layers
+        mean_depth = sum(layer.depth for layer in layers) / len(layers)
+
+        current = ""
+        for index, layer in enumerate(layers):
+            args += [
+                "-loop", "1",
+                "-framerate", str(fps),
+                "-t", f"{asset.duration:.3f}",
+                "-i", str(layer.path),
+            ]
+            motion = _plane_motion(asset.motion, layer.depth - mean_depth)
+            label = f"plane{index}"
+            chains.append(
+                f"[{index}:v]"
+                f"{zoompan_filter(motion, frames=asset.frames, out_w=width, out_h=height, fps=fps)},"
+                f"format=rgba,setsar=1[{label}]"
+            )
+            if not current:
+                current = label
+                continue
+            merged = f"stack{index}"
+            chains.append(f"[{current}][{label}]overlay=0:0:format=auto[{merged}]")
+            current = merged
+
+        chains.append(f"[{current}]format=rgba,setsar=1[base]")
+        return args, chains
 
     # -- stage B: transitions ------------------------------------------------
 

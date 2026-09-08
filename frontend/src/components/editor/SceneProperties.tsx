@@ -125,6 +125,7 @@ export function SceneProperties({
   const activeIndex = activeText ? texts.indexOf(activeText) : -1;
   const aiMotion = capabilities?.ai_motion;
   const imageAi = capabilities?.image;
+  const depth = capabilities?.depth;
   const lipsync = capabilities?.lipsync;
   // Lip sync needs a clip to move and a narration to move it to. The silent clip is
   // preferred: re-syncing an already-speaking mouth is what produces the mush.
@@ -196,6 +197,19 @@ export function SceneProperties({
             step={0.05}
             onChange={(value) => onChange({ animation_intensity: Number(value.toFixed(2)) })}
           />
+
+          {/* Parallax is the one camera move whose result depends on the server:
+              with a depth estimator it separates the image into planes, without one
+              it slides the whole picture. Saying which you are getting beats
+              wondering why the same setting looks different on another machine. */}
+          {scene.animation === "parallax" ? (
+            <Notice tone={depth?.available ? "success" : "info"}>
+              {depth?.available
+                ? "True 2.5D: the image is split by depth, and the foreground travels further than the background."
+                : depth?.message ||
+                  "Flat parallax: the whole image slides together. A depth model would separate foreground from background."}
+            </Notice>
+          ) : null}
 
           <div className="mt-3">
             <span className="field-label">Focal point</span>
