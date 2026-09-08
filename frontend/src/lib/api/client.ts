@@ -12,11 +12,13 @@ import type {
   Capabilities,
   EditorOptions,
   FormatOption,
+  GenerationJob,
   MediaItem,
   Page,
   PlanResponse,
   PlatformOption,
   ProjectDetail,
+  ProjectJobs,
   ProjectSummary,
   RenderJob,
   Scene,
@@ -383,6 +385,24 @@ export const api = {
       `/projects/${projectId}/scenes/${sceneId}/ai-motion?prompt=${encodeURIComponent(prompt)}`,
       { method: "POST" },
     ),
+
+  // ---------------------------------------------------------------- jobs --
+  /**
+   * Everything the project has generated or is generating, in one call.
+   *
+   * `activeOnly` is for the polling path: while work is in flight the editor only
+   * needs what is still running, and asking for the whole history every 1.2 s
+   * would grow with the project instead of staying flat.
+   */
+  projectJobs: (projectId: string, options: { activeOnly?: boolean; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (options.activeOnly) query.set("active_only", "true");
+    if (options.limit) query.set("limit", String(options.limit));
+    const suffix = query.toString() ? `?${query}` : "";
+    return request<ProjectJobs>(`/projects/${projectId}/jobs${suffix}`);
+  },
+
+  getJob: (jobId: string) => request<GenerationJob>(`/jobs/${jobId}`),
 
   // -------------------------------------------------------------- render --
   startRender: (projectId: string) =>

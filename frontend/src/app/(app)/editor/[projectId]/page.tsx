@@ -19,6 +19,7 @@ import { Badge, Notice, Spinner } from "@/components/ui/Feedback";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { CropModal } from "@/components/media/CropModal";
+import { GenerationActivity } from "@/components/editor/GenerationActivity";
 import { LeftPanel } from "@/components/editor/LeftPanel";
 import { PreviewStage } from "@/components/editor/PreviewStage";
 import { RenderDialog } from "@/components/editor/RenderDialog";
@@ -83,6 +84,13 @@ function Editor() {
 
   const refresh = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+    [queryClient, projectId],
+  );
+
+  // Queueing work does not change the project row, so the activity strip has to be
+  // told to look again — otherwise it only notices on its next idle render.
+  const refreshJobs = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
     [queryClient, projectId],
   );
 
@@ -266,6 +274,7 @@ function Editor() {
     mutationFn: () => api.generateVoiceOver(projectId),
     onSuccess: () => {
       toast.info("Generating the voice-over…");
+      void refreshJobs();
       window.setTimeout(() => void refresh(), 4000);
     },
     onError: (error) => toast.fromError(error),
@@ -280,7 +289,10 @@ function Editor() {
   const generateAiMotion = useMutation({
     mutationFn: ({ sceneId, prompt }: { sceneId: string; prompt: string }) =>
       api.generateAiMotion(projectId, sceneId, prompt),
-    onSuccess: (result) => toast.info("AI Motion queued", result.message),
+    onSuccess: (result) => {
+      toast.info("AI Motion queued", result.message);
+      void refreshJobs();
+    },
     onError: (error) => toast.fromError(error),
   });
 
@@ -290,6 +302,7 @@ function Editor() {
       setRenderJobId(job.id);
       setRenderOpen(true);
       void refresh();
+      void refreshJobs();
     },
     onError: (error) => toast.fromError(error),
   });
@@ -420,6 +433,8 @@ function Editor() {
           {capabilities.data.render.message}
         </Notice>
       ) : null}
+
+      <GenerationActivity projectId={projectId} className="mx-3 mt-3" />
 
       {/* ------------------------------------------------------------- body */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

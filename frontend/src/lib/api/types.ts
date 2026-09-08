@@ -8,6 +8,8 @@
 export type VideoFormat = "9:16" | "1:1" | "16:9" | "4:5";
 export type Platform = "tiktok" | "instagram_reels" | "youtube_shorts" | "instagram_story";
 export type GenerationMode = "standard" | "ai_motion";
+/** Tunisian derja is deliberately separate from Modern Standard Arabic. */
+export type Language = "tn" | "ar" | "fr" | "en";
 
 export type VideoStyleKey =
   | "product_showcase"
@@ -175,6 +177,43 @@ export interface RenderJob {
   download_url: string | null;
 }
 
+/**
+ * The unified job registry (`GET /projects/{id}/jobs`).
+ *
+ * Every kind of generation writes here — image, motion, voice, lip sync and the
+ * render itself — so the editor can answer "what is this project doing" from one
+ * poll instead of five differently-shaped ones.
+ */
+export type GenerationJobType = "story" | "image" | "video" | "voice" | "lipsync" | "render";
+
+export interface GenerationJob {
+  id: string;
+  project_id: string;
+  scene_id: string | null;
+  type: GenerationJobType;
+  provider: string;
+  status: RenderStatus;
+  progress: number;
+  stage: string;
+  error: string;
+  external_job_id: string;
+  result_media_id: string | null;
+  result_url: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ProjectJobs {
+  items: GenerationJob[];
+  total: number;
+  active: number;
+  progress: number;
+  current_stage: string;
+  last_error: string;
+  by_status: Record<string, number>;
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -197,6 +236,12 @@ export interface ProjectSummary {
 export interface ProjectDetail extends ProjectSummary {
   topic: string;
   fps: number;
+  /** Drives the planner's wording, the default voice and the subtitle direction. */
+  language: Language;
+  rtl: boolean;
+  character_id: string | null;
+  /** The frozen character description replayed verbatim into every image prompt. */
+  character_description: string;
   template_key: string | null;
   target_duration: number | null;
   hook: string;
