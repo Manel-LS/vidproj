@@ -170,6 +170,15 @@ export interface VoiceOver {
   duck_music_to: number;
   error: string;
   media: MediaItem | null;
+  /** Seconds from the start of the audio; the preview draws the same highlight the renderer burns in. */
+  word_timings: WordTiming[];
+  has_word_timings: boolean;
+}
+
+export interface WordTiming {
+  text: string;
+  start: number;
+  duration: number;
 }
 
 export interface RenderJob {
@@ -452,6 +461,8 @@ export interface Capabilities {
      * neighbouring accent was found, and `note` says which.
      */
     languages: LanguageSupport[];
+    /** Whether this provider reports per-word timings, which word-level subtitles need. */
+    supports_word_timings: boolean;
   };
   image: ProviderStatus & {
     supported_aspect_ratios: string[];

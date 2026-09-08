@@ -102,6 +102,12 @@ class ReorderScenesRequest(BaseModel):
     scene_ids: list[str] = Field(min_length=1, max_length=40)
 
 
+class WordTimingResponse(APIModel):
+    text: str
+    start: float
+    duration: float
+
+
 class VoiceOverResponse(APIModel):
     id: str
     enabled: bool
@@ -113,6 +119,14 @@ class VoiceOverResponse(APIModel):
     duck_music_to: float
     error: str
     media: MediaResponse | None = None
+    #: Per-word timings from the provider, in seconds from the start of the audio.
+    #: The browser preview uses them to draw the same highlight the renderer burns
+    #: in, so preview and export agree.
+    word_timings: list[WordTimingResponse] = Field(default_factory=list)
+    #: Word-level subtitles are only possible when the provider reported timings.
+    #: Published rather than inferred from the list being empty, so the UI can say
+    #: *why* the option is unavailable.
+    has_word_timings: bool = False
 
 
 class VoiceOverUpdate(BaseModel):

@@ -234,6 +234,11 @@ class VoiceOver(IdMixin, TimestampMixin, Base):
     volume: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     duck_music_to: Mapped[float] = mapped_column(Float, default=0.28, nullable=False)
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    #: Per-word timings from the TTS provider, as [{"text","start","duration"}].
+    #: Stored at synthesis because they cannot be recovered afterwards: getting them
+    #: back would mean paying to synthesise the same narration again. Empty when the
+    #: provider does not report them — which is a fact to surface, not to fake.
+    word_timings: Mapped[list[Any]] = mapped_column(default=list, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="voice_over")
     media: Mapped[Media | None] = relationship(foreign_keys=[media_id], lazy="joined")

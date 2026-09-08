@@ -103,6 +103,8 @@ def serialize_voice_over(voice: VoiceOver | None) -> VoiceOverResponse | None:
             "duck_music_to": voice.duck_music_to,
             "error": voice.error,
             "media": serialize_media(voice.media),
+            "word_timings": list(voice.word_timings or []),
+            "has_word_timings": bool(voice.word_timings),
         }
     )
 

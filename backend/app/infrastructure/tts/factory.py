@@ -37,6 +37,7 @@ def voice_status() -> dict[str, object]:
         "available": available,
         "provider": provider.name,
         "display_name": provider.display_name,
+        "supports_word_timings": bool(available and provider.supports_word_timings),
         "message": ""
         if available
         else (

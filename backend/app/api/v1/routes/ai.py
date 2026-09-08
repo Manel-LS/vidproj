@@ -116,9 +116,21 @@ def update_voiceover(
     voice = project.voice_over
     if voice is None:
         raise ValidationError("This project has no voice-over slot.")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    script_changed = (
+        changes.get("script") is not None and changes["script"].strip() != (voice.script or "").strip()
+    )
+    for field, value in changes.items():
         if value is not None:
             setattr(voice, field, value)
+
+    if script_changed and voice.status == VoiceOverStatus.READY.value:
+        # The audio on file now says something else. Keep it — the user may still
+        # want to render with it — but stop calling it ready, and drop the word
+        # timings, which would otherwise subtitle the new script with the old
+        # words' clocks.
+        voice.status = VoiceOverStatus.DRAFT.value
+        voice.word_timings = []
 
     # No voice chosen: pick one that actually speaks the project's language rather
     # than letting the provider fall back to its own default, which is English.

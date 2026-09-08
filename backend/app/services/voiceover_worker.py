@@ -63,6 +63,14 @@ def execute_voiceover_job(project_id: str, user_id: str) -> str:
         voice.media_id = media.id
         voice.provider = result.provider
         voice.voice_id = result.voice_id
+        # Captured here or never: the provider reports word timings while it streams
+        # the audio, and getting them back later would mean paying to synthesise the
+        # same narration again. An empty list is a truthful answer for a provider
+        # that does not report them.
+        voice.word_timings = [
+            {"text": word.text, "start": word.start, "duration": word.duration}
+            for word in result.words
+        ]
         voice.status = VoiceOverStatus.READY.value
         voice.enabled = True
         session.commit()

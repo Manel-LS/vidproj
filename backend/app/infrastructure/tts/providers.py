@@ -10,7 +10,13 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.infrastructure.tts.base import SynthesisResult, Voice, VoiceProvider, VoiceUnavailable
+from app.infrastructure.tts.base import (
+    SynthesisResult,
+    Voice,
+    VoiceProvider,
+    VoiceUnavailable,
+    WordTiming,
+)
 
 logger = get_logger(__name__)
 
@@ -178,6 +184,8 @@ class EdgeVoiceProvider(VoiceProvider):
 
     name = "edge"
     display_name = "Microsoft Edge (gratuit, sans clé)"
+    #: Le service renvoie un événement WordBoundary par mot, y compris en ar-TN.
+    supports_word_timings = True
 
     #: Voix par défaut quand le script est écrit dans cette écriture.
     _BY_SCRIPT = {
@@ -248,16 +256,32 @@ class EdgeVoiceProvider(VoiceProvider):
 
         import edge_tts  # noqa: PLC0415
 
-        async def render() -> bytes:
+        async def render() -> tuple[bytes, list[WordTiming]]:
             chunks: list[bytes] = []
-            communicate = edge_tts.Communicate(text, target_voice, rate=self._rate)
+            words: list[WordTiming] = []
+            # `boundary` defaults to SentenceBoundary in edge-tts, which reports the
+            # whole script as one event — useless for word-level subtitles. Asking
+            # for WordBoundary costs nothing and the service answers for every voice
+            # we ship, ar-TN included.
+            communicate = edge_tts.Communicate(
+                text, target_voice, rate=self._rate, boundary="WordBoundary"
+            )
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     chunks.append(chunk["data"])
-            return b"".join(chunks)
+                elif chunk["type"] == "WordBoundary":
+                    # Offsets arrive in 100-nanosecond ticks.
+                    words.append(
+                        WordTiming(
+                            text=str(chunk.get("text", "")),
+                            start=round(int(chunk["offset"]) / 1e7, 4),
+                            duration=round(int(chunk["duration"]) / 1e7, 4),
+                        )
+                    )
+            return b"".join(chunks), words
 
         try:
-            audio = asyncio.run(render())
+            audio, words = asyncio.run(render())
         except Exception as exc:
             logger.warning("Edge TTS failed: %s", exc)
             raise VoiceUnavailable(
@@ -274,4 +298,5 @@ class EdgeVoiceProvider(VoiceProvider):
             extension="mp3",
             voice_id=target_voice,
             provider=self.name,
+            words=tuple(words),
         )
