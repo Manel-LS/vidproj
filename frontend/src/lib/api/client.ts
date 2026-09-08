@@ -260,6 +260,7 @@ export const api = {
     description?: string;
     topic?: string;
     platform?: string;
+    language?: string;
     format?: string | null;
     style?: string;
     template_key?: string | null;

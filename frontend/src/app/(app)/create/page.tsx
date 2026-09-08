@@ -11,8 +11,9 @@ import { useToast } from "@/components/ui/Toast";
 import { Dropzone } from "@/components/media/Dropzone";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { StyleCard } from "@/components/styles/StyleCard";
+import { LanguageSelect } from "@/components/editor/LanguageSelect";
 import { api, ApiError } from "@/lib/api/client";
-import type { MediaItem, Platform, ProjectDetail, VideoStyleKey } from "@/lib/api/types";
+import type { Language, MediaItem, Platform, ProjectDetail, VideoStyleKey } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -51,6 +52,7 @@ function CreateWizard() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [platform, setPlatform] = useState<Platform>("tiktok");
+  const [language, setLanguage] = useState<Language>("en");
 
   // Step 2
   const [media, setMedia] = useState<MediaItem[]>([]);
@@ -82,6 +84,7 @@ function CreateWizard() {
         description: description.trim(),
         topic: description.trim().slice(0, 300) || name.trim(),
         platform,
+        language,
         style,
         template_key: templateKey,
         target_duration: duration,
@@ -245,6 +248,12 @@ function CreateWizard() {
                 label: `${entry.label} · ${entry.default_format} · up to ${entry.max_seconds}s`,
               }))}
               hint="All four use a 1080 × 1920 vertical frame by default."
+            />
+
+            <LanguageSelect
+              value={language}
+              capabilities={capabilities.data}
+              onChange={setLanguage}
             />
           </div>
 

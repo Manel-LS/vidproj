@@ -15,6 +15,7 @@ import { Input, Select, Slider, Textarea, Toggle } from "@/components/ui/Field";
 import { Badge, Notice, Spinner } from "@/components/ui/Feedback";
 import { Dropzone } from "@/components/media/Dropzone";
 import { MediaGrid } from "@/components/media/MediaGrid";
+import { LanguageSelect } from "@/components/editor/LanguageSelect";
 import type {
   Capabilities,
   MediaItem,
@@ -447,10 +448,12 @@ function AiTab({
   capabilities,
   styles,
   planning,
+  busy,
   onGeneratePlan,
   onDraftVoiceScript,
   onGenerateVoiceOver,
   onUpdateVoiceOver,
+  onUpdateProject,
 }: LeftPanelProps) {
   const [instruction, setInstruction] = useState("");
   const [duration, setDuration] = useState(
@@ -489,6 +492,16 @@ function AiTab({
           placeholder="Create a 15 second TikTok promoting these school supplies. Make it energetic and modern."
           maxLength={1000}
           className="min-h-[84px]"
+        />
+
+        {/* Persisted immediately rather than sent with the plan request: it also
+            drives the voice and the subtitle direction, which are used outside
+            planning. */}
+        <LanguageSelect
+          value={project.language}
+          capabilities={capabilities}
+          disabled={busy}
+          onChange={(language) => onUpdateProject({ language })}
         />
 
         <Select

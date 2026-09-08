@@ -380,6 +380,18 @@ export interface ProviderStatus {
   message: string;
 }
 
+export interface LanguageSupport {
+  code: Language;
+  label: string;
+  rtl: boolean;
+  /** The configured voice provider has a voice for this language at all. */
+  supported: boolean;
+  /** The voice really is that language, rather than a neighbouring accent. */
+  exact: boolean;
+  voice_id: string | null;
+  note: string;
+}
+
 export interface Capabilities {
   render: {
     available: boolean;
@@ -392,6 +404,20 @@ export interface Capabilities {
   ai_planner: ProviderStatus;
   voiceover: ProviderStatus & {
     voices: Array<{ id: string; name: string; description: string; language: string; gender: string }>;
+    /**
+     * Per language, and honest: a provider with no `ar-TN` voice is not reported as
+     * supporting derja just because it has some Arabic. `exact: false` means only a
+     * neighbouring accent was found, and `note` says which.
+     */
+    languages: LanguageSupport[];
+  };
+  image: ProviderStatus & {
+    supported_aspect_ratios: string[];
+    supports_reference_image: boolean;
+  };
+  lipsync: ProviderStatus & {
+    max_clip_seconds: number;
+    needs_public_urls: boolean;
   };
   ai_motion: ProviderStatus & {
     supported_durations: number[];
