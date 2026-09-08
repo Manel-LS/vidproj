@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * One dark canvas, one accent, three surface levels.
+ *
+ * The product is a creative tool, so the interface stays out of the way: the video
+ * preview is the brightest thing on screen and everything else is quiet.
+ */
+:root {
+  --canvas: 9 10 14;
+  --surface: 17 19 26;
+  --elevated: 24 27 36;
+  --line: 38 42 54;
+  --ink: 237 239 245;
+  --muted: 154 160 176;
+  --faint: 104 111 130;
+  --accent: 124 108 255;
+  --accent-soft: 46 42 92;
+  --positive: 52 199 136;
+  --warning: 240 178 66;
+  --danger: 244 96 96;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* A single restrained scrollbar treatment everywhere. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 999px;
+  border: 2px solid rgb(var(--canvas));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--faint));
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-panel border border-line bg-surface;
+  }
+
+  .card {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-2xs font-medium uppercase tracking-wider text-faint;
+  }
+
+  .input-base {
+    @apply w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink
+      placeholder:text-faint transition
+      focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .checkerboard {
+    background-image:
+      linear-gradient(45deg, rgb(var(--elevated)) 25%, transparent 25%),
+      linear-gradient(-45deg, rgb(var(--elevated)) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgb(var(--elevated)) 75%),
+      linear-gradient(-45deg, transparent 75%, rgb(var(--elevated)) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-elevated;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.05),
+      transparent
+    );
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,317 @@
+"""AI planning, voice-over, image generation, AI Motion and lip-sync endpoints."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, status
+
+from app.api.deps import CurrentUser, SessionDep, rate_limit
+from app.api.serializers import serialize_project_detail, serialize_voice_over
+from app.core.errors import ProviderUnavailableError, ValidationError
+from app.domain.enums import GenerationMode, VoiceOverStatus
+from app.domain.language import match_voice
+from app.domain.planner import build_voiceover_script
+from app.domain.plan import IMAGE_PROMPT_MAX_LENGTH
+from app.infrastructure.i2v.factory import get_i2v_provider, i2v_status
+from app.infrastructure.image.factory import get_image_provider, image_status
+from app.infrastructure.lipsync.factory import get_lipsync_provider, lipsync_status
+from app.infrastructure.jobs.factory import get_job_queue
+from app.infrastructure.tts.factory import get_voice_provider, voice_status
+from app.schemas.project import (
+    PlanApplyRequest,
+    PlanGenerateRequest,
+    PlanResponse,
+    ProjectDetail,
+    VoiceOverResponse,
+    VoiceOverUpdate,
+)
+from app.services import plan_service, project_service, scene_service
+from app.services.plan_assembler import project_to_plan
+
+router = APIRouter(prefix="/projects/{project_id}", tags=["ai"], dependencies=[Depends(rate_limit)])
+
+
+@router.post("/plan/generate", response_model=PlanResponse, summary="Create the video plan with AI")
+def generate_plan(
+    project_id: str, payload: PlanGenerateRequest, session: SessionDep, user: CurrentUser
+) -> PlanResponse:
+    """Build a scene-by-scene plan (requirement 26).
+
+    Falls back to the deterministic planner whenever the AI provider is missing or
+    fails; `ai_used` and `notice` say which path ran.
+    """
+    project = project_service.get_owned_project(session, project_id, user)
+    outcome = plan_service.generate_plan(
+        project,
+        instruction=payload.instruction,
+        style=payload.style,
+        target_duration=payload.target_duration,
+        include_voiceover=payload.include_voiceover,
+        template_key=payload.template_key,
+        use_ai=payload.use_ai,
+    )
+
+    applied = False
+    if payload.apply:
+        plan_service.apply_plan(session, project, outcome.plan)
+        if payload.include_voiceover and project.voice_over is not None:
+            project.voice_over.enabled = True
+            if outcome.plan.voiceover and outcome.plan.voiceover.script:
+                project.voice_over.script = outcome.plan.voiceover.script
+        session.commit()
+        applied = True
+
+    return PlanResponse(
+        plan=outcome.plan,
+        generated_by=outcome.generated_by,
+        ai_used=outcome.ai_used,
+        notice=outcome.notice,
+        applied=applied,
+        total_duration=outcome.plan.total_duration,
+        scene_start_times=outcome.plan.scene_start_times(),
+    )
+
+
+@router.get("/plan", response_model=PlanResponse, summary="The project's current plan")
+def get_plan(project_id: str, session: SessionDep, user: CurrentUser) -> PlanResponse:
+    project = project_service.get_owned_project(session, project_id, user)
+    plan = project_to_plan(project)
+    return PlanResponse(
+        plan=plan,
+        generated_by=plan.generated_by,
+        ai_used=plan.generated_by not in ("manual", "heuristic"),
+        applied=True,
+        total_duration=plan.total_duration,
+        scene_start_times=plan.scene_start_times(),
+    )
+
+
+@router.put("/plan", response_model=ProjectDetail, summary="Replace the plan with an edited one")
+def apply_plan(
+    project_id: str, payload: PlanApplyRequest, session: SessionDep, user: CurrentUser
+) -> ProjectDetail:
+    """Validate a client-supplied plan and write it onto the project (requirement 19)."""
+    project = project_service.get_owned_project(session, project_id, user)
+    plan = plan_service.validate_incoming_plan(payload.plan)
+    plan_service.apply_plan(session, project, plan)
+    session.commit()
+    session.refresh(project)
+    return serialize_project_detail(project)
+
+
+# ------------------------------------------------------------- voice-over ----
+
+
+@router.get("/voiceover", response_model=VoiceOverResponse, summary="Voice-over state")
+def get_voiceover(project_id: str, session: SessionDep, user: CurrentUser) -> VoiceOverResponse:
+    project = project_service.get_owned_project(session, project_id, user)
+    if project.voice_over is None:
+        raise ValidationError("This project has no voice-over slot.")
+    return serialize_voice_over(project.voice_over)
+
+
+@router.patch("/voiceover", response_model=VoiceOverResponse, summary="Edit the voice-over script")
+def update_voiceover(
+    project_id: str, payload: VoiceOverUpdate, session: SessionDep, user: CurrentUser
+) -> VoiceOverResponse:
+    project = project_service.get_owned_project(session, project_id, user)
+    voice = project.voice_over
+    if voice is None:
+        raise ValidationError("This project has no voice-over slot.")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(voice, field, value)
+
+    # No voice chosen: pick one that actually speaks the project's language rather
+    # than letting the provider fall back to its own default, which is English.
+    if not voice.voice_id:
+        provider = get_voice_provider()
+        if provider.is_available():
+            matched, _exact = match_voice(provider.list_voices(), project.language)
+            if matched is not None:
+                voice.voice_id = matched.id
+
+    session.commit()
+    return serialize_voice_over(voice)
+
+
+@router.post("/voiceover/script", response_model=VoiceOverResponse, summary="Draft a narration script")
+def draft_voiceover_script(
+    project_id: str, session: SessionDep, user: CurrentUser
+) -> VoiceOverResponse:
+    """Assemble a script from the plan's on-screen copy, for the user to edit."""
+    project = project_service.get_owned_project(session, project_id, user)
+    voice = project.voice_over
+    if voice is None:
+        raise ValidationError("This project has no voice-over slot.")
+
+    plan = project_to_plan(project)
+    lines = [text.content for scene in plan.scenes for text in scene.texts]
+    voice.script = build_voiceover_script(lines, plan.hook, plan.cta)
+    voice.status = VoiceOverStatus.DRAFT.value
+    session.commit()
+    return serialize_voice_over(voice)
+
+
+@router.post(
+    "/voiceover/generate",
+    response_model=VoiceOverResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Synthesise the voice-over",
+)
+def generate_voiceover(project_id: str, session: SessionDep, user: CurrentUser) -> VoiceOverResponse:
+    project = project_service.get_owned_project(session, project_id, user)
+    voice = project.voice_over
+    if voice is None:
+        raise ValidationError("This project has no voice-over slot.")
+
+    provider = get_voice_provider()
+    if not provider.is_available():
+        raise ProviderUnavailableError(str(voice_status()["message"]))
+    if not (voice.script or "").strip():
+        raise ValidationError("Write a voice-over script first, then generate the audio.")
+
+    voice.status = VoiceOverStatus.GENERATING.value
+    voice.error = ""
+    session.commit()
+
+    get_job_queue().enqueue_voiceover(project.id, user.id)
+    return serialize_voice_over(voice)
+
+
+# ------------------------------------------------------------ scene image ----
+
+
+@router.post(
+    "/scenes/{scene_id}/image",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate this scene's still image from a prompt",
+    dependencies=[Depends(rate_limit)],
+)
+def generate_scene_image(
+    project_id: str,
+    scene_id: str,
+    session: SessionDep,
+    user: CurrentUser,
+    prompt: str = "",
+) -> dict:
+    """Queue an image generation for one scene.
+
+    The prompt is stored on the scene before the job starts, so regenerating
+    reproduces the same shot and the editor can show what was asked for even
+    while the job is still running.
+    """
+    project = project_service.get_owned_project(session, project_id, user)
+    scene = scene_service.get_scene(session, project, scene_id)
+
+    provider = get_image_provider()
+    if not provider.is_available():
+        raise ProviderUnavailableError(str(image_status()["message"]))
+
+    prompt = (prompt or scene.image_prompt or "").strip()
+    if not prompt:
+        raise ValidationError("Describe the image you want before generating it.")
+    if len(prompt) > IMAGE_PROMPT_MAX_LENGTH:
+        raise ValidationError(
+            f"That image prompt is too long (limit {IMAGE_PROMPT_MAX_LENGTH} characters)."
+        )
+
+    scene.image_prompt = prompt
+    # Clear the previous failure: leaving it would make a running job look broken.
+    if scene.ai_motion:
+        scene.ai_motion = {**scene.ai_motion, "error": ""}
+    session.commit()
+
+    get_job_queue().enqueue_image(project.id, user.id, scene.id)
+    return {
+        "status": "queued",
+        "message": "Generating this scene's image. This usually takes under a minute.",
+        "scene_id": scene.id,
+        "provider": provider.name,
+    }
+
+
+# -------------------------------------------------------------- AI motion ----
+
+
+@router.post(
+    "/scenes/{scene_id}/ai-motion",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate an AI Motion clip for one scene",
+)
+def generate_ai_motion(
+    project_id: str,
+    scene_id: str,
+    session: SessionDep,
+    user: CurrentUser,
+    prompt: str = "",
+) -> dict:
+    project = project_service.get_owned_project(session, project_id, user)
+    scene = scene_service.get_scene(session, project, scene_id)
+
+    provider = get_i2v_provider()
+    if not provider.is_available():
+        raise ProviderUnavailableError(str(i2v_status()["message"]))
+    if not scene.media_id:
+        raise ValidationError("Add an image to this scene before generating AI Motion.")
+
+    scene.ai_motion = {
+        "enabled": True,
+        "prompt": (prompt or "")[:800],
+        "provider": provider.name,
+        "generated_media_id": None,
+        "job_reference": None,
+    }
+    project.mode = GenerationMode.AI_MOTION.value
+    session.commit()
+
+    get_job_queue().enqueue_ai_motion(project.id, user.id, scene.id)
+    return {
+        "status": "queued",
+        "message": "Generating motion for this scene. This can take a couple of minutes.",
+        "scene_id": scene.id,
+    }
+
+
+# ---------------------------------------------------------------- lip sync ----
+
+
+@router.post(
+    "/scenes/{scene_id}/lipsync",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Lip-sync this scene's clip to its slice of the voice-over",
+    dependencies=[Depends(rate_limit)],
+)
+def generate_lipsync(
+    project_id: str,
+    scene_id: str,
+    session: SessionDep,
+    user: CurrentUser,
+) -> dict:
+    """Queue a lip-sync pass for one scene.
+
+    Everything the provider needs already exists on the project — the motion clip
+    on the scene, the narration on the project — so this endpoint takes no body.
+    The scene's window into the narration is computed by the worker.
+    """
+    project = project_service.get_owned_project(session, project_id, user)
+    scene = scene_service.get_scene(session, project, scene_id)
+
+    provider = get_lipsync_provider()
+    if not provider.is_available():
+        raise ProviderUnavailableError(str(lipsync_status()["message"]))
+
+    spec = scene.ai_motion or {}
+    if not (spec.get("silent_media_id") or spec.get("generated_media_id")):
+        raise ValidationError("Generate this scene's motion clip before lip-syncing it.")
+    if project.voice_over is None or not project.voice_over.media_id:
+        raise ValidationError("Generate the voice-over before lip-syncing this scene.")
+
+    scene.ai_motion = {**spec, "error": ""}
+    session.commit()
+
+    get_job_queue().enqueue_lipsync(project.id, user.id, scene.id)
+    return {
+        "status": "queued",
+        "message": "Syncing this scene's lips to the narration. This can take a few minutes.",
+        "scene_id": scene.id,
+        "provider": provider.name,
+    }

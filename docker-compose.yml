@@ -1,0 +1,164 @@
+# Reelcraft — full production-shaped stack.
+#
+#   docker compose up --build
+#   docker compose exec api alembic upgrade head
+#   docker compose exec api python -m app.seed
+#
+# Then open http://localhost:3000 and sign in with the demo account the seeder prints.
+#
+# To use MySQL/MariaDB instead of PostgreSQL, start the `mysql` profile and override
+# the URL — the app supports both:
+#
+#   1. set DATABASE_URL=mysql+pymysql://reelcraft:reelcraft@mysql:3306/reelcraft in .env
+#   2. docker compose --profile mysql up --build
+#
+#   (the profile adds MySQL; PostgreSQL still starts because `api` waits on its
+#   health check — leave it running, or drop the postgres service if you have
+#   settled on MySQL.)
+#
+# `api` and `worker` run the same image: the API serves HTTP, the worker drains the
+# Celery queue. They share the storage volume because renders read uploaded media
+# from it and write the finished MP4 back.
+
+name: reelcraft
+
+x-backend-env: &backend-env
+  ENVIRONMENT: production
+  DEBUG: "false"
+  SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env — generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`}
+  # Override to point at the `mysql` service instead:
+  #   mysql+pymysql://reelcraft:reelcraft@mysql:3306/reelcraft
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reelcraft:${POSTGRES_PASSWORD:-reelcraft}@postgres:5432/reelcraft}
+  REDIS_URL: redis://redis:6379/0
+  JOB_QUEUE: celery
+  STORAGE_PROVIDER: local
+  STORAGE_LOCAL_ROOT: /app/var/storage
+  RENDER_WORK_DIR: /app/var/work
+  # Relative, so media URLs resolve against whatever host the API is reached on.
+  STORAGE_PUBLIC_BASE_URL: /api/v1/files
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+  # Optional providers — leave unset and the app degrades gracefully.
+  LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  TTS_PROVIDER: ${TTS_PROVIDER:-none}
+  ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+  I2V_PROVIDER: ${I2V_PROVIDER:-none}
+  RUNWAY_API_KEY: ${RUNWAY_API_KEY:-}
+  LUMA_API_KEY: ${LUMA_API_KEY:-}
+  KLING_ACCESS_KEY: ${KLING_ACCESS_KEY:-}
+  KLING_SECRET_KEY: ${KLING_SECRET_KEY:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reelcraft
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reelcraft}
+      POSTGRES_DB: reelcraft
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reelcraft -d reelcraft"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Opt-in alternative to PostgreSQL: `docker compose --profile mysql up`.
+  mysql:
+    image: mariadb:11
+    profiles: ["mysql"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-reelcraft-root}
+      MARIADB_DATABASE: reelcraft
+      MARIADB_USER: reelcraft
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-reelcraft}
+    # utf8mb4 end to end so emoji in captions survive the round trip.
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    environment: *backend-env
+    volumes:
+      - media-storage:/app/var/storage
+      - render-work:/app/var/work
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+    environment: *backend-env
+    command:
+      - celery
+      - -A
+      - app.infrastructure.jobs.celery_queue.celery_app
+      - worker
+      - --loglevel=info
+      # Rendering is CPU-bound; one process per worker keeps ffmpeg from thrashing.
+      - --concurrency=2
+    volumes:
+      - media-storage:/app/var/storage
+      - render-work:/app/var/work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.infrastructure.jobs.celery_queue.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # The browser talks to the API directly, so this is a host URL, not `api:8000`.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  mysql-data:
+  redis-data:
+  media-storage:
+  render-work:
