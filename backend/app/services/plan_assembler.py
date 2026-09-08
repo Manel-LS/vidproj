@@ -18,13 +18,17 @@ from app.domain.enums import (
 )
 from app.domain.insight import ImageInsight
 from app.domain.plan import (
+    MAX_WORD_TIMINGS,
     AiMotionSpec,
     AudioPlan,
     PlanScene,
+    SubtitleSpec,
     TextOverlay,
     VideoPlan,
     VoiceOverPlan,
+    WordTimingEntry,
 )
+from app.domain.subtitles import SubtitleStyle
 from app.infrastructure.imaging.analyzer import insight_from_media
 from app.models import Media, Project, Scene
 
@@ -81,7 +85,15 @@ def project_to_plan(project: Project) -> VideoPlan:
             duck_music_to=voice.duck_music_to if voice else 0.28,
             provider=voice.provider if voice else None,
             voice_id=voice.voice_id if voice else None,
+            word_timings=[
+                WordTimingEntry.model_validate(entry)
+                for entry in (voice.word_timings or [])[:MAX_WORD_TIMINGS]
+                if isinstance(entry, dict)
+            ]
+            if voice
+            else [],
         ),
+        subtitles=SubtitleSpec(style=SubtitleStyle(project.subtitle_style or "none")),
         hook=project.hook,
         cta=project.cta,
         caption=project.caption,
@@ -108,6 +120,7 @@ def apply_plan_to_project(session: Session, project: Project, plan: VideoPlan) -
     project.cta = plan.cta
     project.caption = plan.caption
     project.hashtags = list(plan.hashtags)
+    project.subtitle_style = plan.subtitles.style.value
     project.plan_generated_by = plan.generated_by
     project.plan_notes = plan.notes
 

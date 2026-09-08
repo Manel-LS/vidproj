@@ -167,6 +167,7 @@ def serialize_project_detail(
             "topic": project.topic,
             "fps": project.fps,
             "template_key": project.template_key,
+            "subtitle_style": project.subtitle_style or "none",
             "language": project.language,
             "rtl": is_rtl(project.language),
             "character_id": project.character_id,

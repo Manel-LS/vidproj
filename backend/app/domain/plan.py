@@ -26,6 +26,7 @@ from app.domain.enums import (
     VideoFormat,
     VideoStyle,
 )
+from app.domain.subtitles import SubtitleStyle
 
 PLAN_VERSION = 1
 
@@ -40,6 +41,9 @@ ERROR_MAX_LENGTH = 500
 #: Image prompts carry subject, clothing, environment, lighting, camera and a
 #: consistency clause. 400 (the `note` limit) truncated them mid-sentence.
 IMAGE_PROMPT_MAX_LENGTH = 1200
+#: A 3-minute narration is well under a thousand words; the cap exists so a
+#: malformed plan cannot make the renderer allocate without bound.
+MAX_WORD_TIMINGS = 2000
 
 _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
@@ -173,6 +177,14 @@ class AudioPlan(StrictModel):
     loop: bool = True
 
 
+class WordTimingEntry(StrictModel):
+    """When one spoken word starts, in seconds from the start of the narration."""
+
+    text: str = Field(max_length=120)
+    start: float = Field(ge=0.0, le=MAX_TOTAL_SECONDS)
+    duration: float = Field(default=0.0, ge=0.0, le=30.0)
+
+
 class VoiceOverPlan(StrictModel):
     enabled: bool = False
     script: str = Field(default="", max_length=4000)
@@ -182,6 +194,21 @@ class VoiceOverPlan(StrictModel):
     duck_music_to: float = Field(default=0.28, ge=0.0, le=1.0)
     provider: str | None = None
     voice_id: str | None = None
+    #: Reported by the TTS provider at synthesis. Carried on the plan so the render
+    #: and the browser preview draw the same subtitles from the same numbers.
+    #: Empty means the provider does not report them — subtitles then fall back to
+    #: whole lines rather than pretending to know where each word fell.
+    word_timings: list[WordTimingEntry] = Field(default_factory=list, max_length=MAX_WORD_TIMINGS)
+
+
+class SubtitleSpec(StrictModel):
+    """Burned-in subtitles for the whole video."""
+
+    style: SubtitleStyle = SubtitleStyle.NONE
+
+    @property
+    def enabled(self) -> bool:
+        return self.style is not SubtitleStyle.NONE
 
 
 class VideoPlan(StrictModel):
@@ -195,6 +222,7 @@ class VideoPlan(StrictModel):
     scenes: list[PlanScene] = Field(min_length=1, max_length=MAX_SCENES)
     audio: AudioPlan | None = None
     voiceover: VoiceOverPlan | None = None
+    subtitles: SubtitleSpec = Field(default_factory=SubtitleSpec)
     hook: str = Field(default="", max_length=MAX_TEXT_LENGTH)
     cta: str = Field(default="", max_length=MAX_TEXT_LENGTH)
     caption: str = Field(default="", max_length=2200)

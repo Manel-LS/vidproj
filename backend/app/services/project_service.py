@@ -20,6 +20,7 @@ from app.domain.enums import (
 )
 from app.domain import copy as copy_tables
 from app.domain.styles import get_style_preset
+from app.domain.subtitles import SubtitleStyle
 from app.domain.templates import get_template
 from app.infrastructure.storage.base import unique_key
 from app.infrastructure.storage.factory import get_storage
@@ -93,6 +94,7 @@ def create_project(
     character_id: str | None = None,
     target_duration: float | None = None,
     mode: GenerationMode = GenerationMode.STANDARD,
+    subtitle_style: SubtitleStyle = SubtitleStyle.NONE,
 ) -> Project:
     if template_key and get_template(template_key) is None:
         raise ValidationError(f"There is no template called '{template_key}'.")
@@ -114,6 +116,7 @@ def create_project(
         mode=mode.value,
         template_key=template_key,
         character_id=character_id,
+        subtitle_style=subtitle_style.value if hasattr(subtitle_style, "value") else str(subtitle_style),
         target_duration=target_duration,
         # The style preset's CTA is English. A project created in another language
         # would carry it forever, and because `request.cta` is then non-empty the
@@ -153,7 +156,7 @@ def update_project(session: Session, project: Project, **changes) -> Project:
     if changes.get("hashtags") is not None:
         project.hashtags = [str(tag).lstrip("#")[:40] for tag in changes["hashtags"]][:30]
     previous_language = project.language
-    for field in ("platform", "format", "style", "language", "mode", "template_key"):
+    for field in ("platform", "format", "style", "language", "mode", "template_key", "subtitle_style"):
         if changes.get(field) is not None:
             value = changes[field]
             project.__setattr__(field, value.value if hasattr(value, "value") else value)

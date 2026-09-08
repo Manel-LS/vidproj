@@ -23,6 +23,7 @@ from app.domain.enums import (
 )
 from app.domain.plan import plan_schema_json
 from app.domain.styles import STYLE_PRESETS
+from app.domain.subtitles import SUBTITLE_PRESETS, SubtitleStyle
 from app.infrastructure.i2v.factory import i2v_status
 from app.domain.language import language_support
 from app.infrastructure.image.factory import image_status
@@ -132,6 +133,20 @@ def list_options() -> dict:
         "text_backgrounds": [b.value for b in TextBackground],
         "font_families": [f.value for f in FontFamily],
         "styles": [s.value for s in VideoStyle],
+        # Presets rather than bare keys: the editor needs a name and a sentence to
+        # put next to each option, and duplicating those in the client would let
+        # them drift from what the renderer actually draws.
+        "subtitle_styles": [
+            {
+                "key": SubtitleStyle.NONE.value,
+                "name": "No subtitles",
+                "description": "The video carries no burned-in text.",
+            }
+        ]
+        + [
+            {"key": preset.key.value, "name": preset.name, "description": preset.description}
+            for preset in SUBTITLE_PRESETS.values()
+        ],
     }
 
 

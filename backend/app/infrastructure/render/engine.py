@@ -24,6 +24,16 @@ from app.core.logging import get_logger
 from app.domain.animation import Motion, build_motion
 from app.domain.enums import AnimationType, TransitionType
 from app.domain.plan import PlanScene, VideoPlan
+from app.domain.subtitles import (
+    build_cues,
+    cues_from_sentences,
+    get_subtitle_preset,
+    parse_words,
+)
+from app.infrastructure.imaging.subtitle_renderer import (
+    SubtitleTrackAsset,
+    render_subtitle_track,
+)
 from app.infrastructure.imaging.text_renderer import TextLayerAsset, render_text_layer
 from app.infrastructure.render.base import (
     ProgressReporter,
@@ -341,7 +351,13 @@ class FFmpegRenderEngine(RenderEngine):
         plan = request.plan
         on_progress(_STAGE_TRANSITIONS[0], "Applying transitions")
 
-        if len(assets) == 1:
+        # Subtitles are burned in here rather than in a pass of their own. This is
+        # the only stage that encodes at final quality, and a separate burn-in pass
+        # would put the whole picture through a second generation of compression to
+        # add a strip of text.
+        subtitles = self._prepare_subtitles(request, on_progress)
+
+        if len(assets) == 1 and subtitles is None:
             shutil.copyfile(assets[0].clip_path, target)
             self._report_span(on_progress, _STAGE_TRANSITIONS, 1.0, "Applying transitions")
             return
@@ -366,6 +382,17 @@ class FFmpegRenderEngine(RenderEngine):
                     + f"[{label}]"
                 )
             current = label
+
+        if subtitles is not None:
+            args += ["-framerate", str(subtitles.fps), "-i", subtitles.sequence_pattern]
+            index = len(assets)
+            chains.append(f"[{index}:v]format=rgba,setpts=PTS-STARTPTS[subs]")
+            chains.append(
+                f"[{current}][subs]overlay=x={subtitles.x}:y={subtitles.y}"
+                ":eof_action=pass:shortest=0[subbed]"
+            )
+            current = "subbed"
+
         chains.append(f"[{current}]format=yuv420p,fps={plan.fps}[vout]")
 
         args += ["-filter_complex", ";".join(chains), "-map", "[vout]"]
@@ -380,6 +407,57 @@ class FFmpegRenderEngine(RenderEngine):
             ),
             cancel_check=request.cancel_check,
         )
+
+    # -- stage B2: subtitles -------------------------------------------------
+
+    def _prepare_subtitles(
+        self, request: RenderRequest, on_progress: ProgressReporter
+    ) -> SubtitleTrackAsset | None:
+        """Rasterise the subtitle band, or return None when there is none to draw.
+
+        Falls back to whole-line cards when the provider reported no word timings.
+        That is a visible difference — no word is highlighted — and it is the right
+        one: highlighting a word whose start time was guessed is worse than not
+        highlighting at all.
+        """
+        plan = request.plan
+        preset = get_subtitle_preset(plan.subtitles.style)
+        if preset is None:
+            return None
+
+        voice = plan.voiceover
+        if voice is None or not voice.enabled:
+            return None
+
+        words = parse_words([entry.model_dump() for entry in voice.word_timings])
+        if words:
+            cues = build_cues(
+                words,
+                max_chars=preset.max_chars,
+                max_words=preset.max_words,
+                limit=plan.total_duration,
+            )
+        else:
+            cues = cues_from_sentences(voice.script, plan.total_duration)
+        if not cues:
+            return None
+
+        on_progress(_STAGE_TRANSITIONS[0], "Adding subtitles")
+        width, height = plan.dimensions
+        try:
+            return render_subtitle_track(
+                cues,
+                preset,
+                frame_size=(width, height),
+                fps=plan.fps,
+                total_duration=plan.total_duration,
+                output_dir=Path(request.work_dir) / "subtitles",
+            )
+        except Exception:  # noqa: BLE001
+            # A video without subtitles is a lesser result than one with them; a
+            # video that failed to render is no result at all.
+            logger.exception("Subtitle rasterisation failed; rendering without subtitles")
+            return None
 
     def _video_encode_args(self, plan: VideoPlan) -> list[str]:
         args = [

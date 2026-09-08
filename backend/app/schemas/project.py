@@ -16,6 +16,7 @@ from app.domain.enums import (
     VoiceOverStatus,
 )
 from app.domain.plan import IMAGE_PROMPT_MAX_LENGTH, TextOverlay, VideoPlan
+from app.domain.subtitles import SubtitleStyle
 from app.schemas.common import APIModel
 from app.schemas.media import AudioTrackResponse, MediaResponse
 
@@ -32,6 +33,7 @@ class ProjectCreate(BaseModel):
     character_id: str | None = None
     target_duration: float | None = Field(default=None, ge=2.0, le=180.0)
     mode: GenerationMode = GenerationMode.STANDARD
+    subtitle_style: SubtitleStyle = SubtitleStyle.NONE
 
 
 class ProjectUpdate(BaseModel):
@@ -51,6 +53,7 @@ class ProjectUpdate(BaseModel):
     cta: str | None = Field(default=None, max_length=300)
     caption: str | None = Field(default=None, max_length=2200)
     hashtags: list[str] | None = Field(default=None, max_length=30)
+    subtitle_style: SubtitleStyle | None = None
 
 
 class SceneResponse(APIModel):
@@ -175,6 +178,8 @@ class ProjectDetail(ProjectSummary):
     topic: str
     fps: int
     template_key: str | None
+    #: Burned-in subtitles; "none" means the video carries none.
+    subtitle_style: SubtitleStyle = SubtitleStyle.NONE
     #: Drives the planner's language, the default voice and subtitle direction.
     language: Language = Language.ENGLISH
     rtl: bool = False

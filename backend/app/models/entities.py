@@ -38,6 +38,7 @@ from app.domain.enums import (
     VideoStyle,
     VoiceOverStatus,
 )
+from app.domain.subtitles import SubtitleStyle
 
 
 class User(IdMixin, TimestampMixin, Base):
@@ -81,6 +82,10 @@ class Project(IdMixin, TimestampMixin, Base):
     mode: Mapped[str] = mapped_column(String(16), default=GenerationMode.STANDARD.value, nullable=False)
     fps: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     template_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Burned-in subtitle style; "none" means the video carries none.
+    subtitle_style: Mapped[str] = mapped_column(
+        String(16), default=SubtitleStyle.NONE.value, server_default=SubtitleStyle.NONE.value, nullable=False
+    )
     character_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True
     )

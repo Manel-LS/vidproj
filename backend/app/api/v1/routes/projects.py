@@ -54,6 +54,7 @@ def create_project(payload: ProjectCreate, session: SessionDep, user: CurrentUse
         character_id=payload.character_id,
         target_duration=payload.target_duration,
         mode=payload.mode,
+        subtitle_style=payload.subtitle_style,
     )
     session.commit()
     return serialize_project_detail(project)
