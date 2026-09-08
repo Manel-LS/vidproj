@@ -38,6 +38,11 @@ os.environ.update(
         "LLM_PROVIDER": "heuristic",
         "TTS_PROVIDER": "none",
         "I2V_PROVIDER": "none",
+        # Pinned like every other provider: the suite must describe the code,
+        # not whatever the developer happens to have enabled in their .env.
+        "DEPTH_PROVIDER": "none",
+        "IMAGE_PROVIDER": "none",
+        "LIPSYNC_PROVIDER": "none",
         # Keep renders quick: a smaller supersample and a faster preset.
         "RENDER_SUPERSAMPLE": "1.25",
         "RENDER_PRESET": "ultrafast",

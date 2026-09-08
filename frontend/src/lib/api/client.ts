@@ -18,6 +18,7 @@ import type {
   MediaItem,
   Page,
   PlanResponse,
+  Platform,
   PlatformOption,
   ProjectDetail,
   ProjectJobs,
@@ -416,6 +417,19 @@ export const api = {
       `/projects/${projectId}/scenes/${sceneId}/lipsync`,
       { method: "POST" },
     ),
+
+  /**
+   * Caption and hashtags written for one network. Deliberately not behind the AI
+   * provider: this is convention, not creativity, so it works with no key at all.
+   */
+  generateSocial: (projectId: string, payload: { platform?: Platform; apply?: boolean }) =>
+    request<{
+      platform: Platform;
+      caption: string;
+      hashtags: string[];
+      applied: boolean;
+      generated_by: string;
+    }>(`/projects/${projectId}/social`, { method: "POST", body: payload }),
 
   // ---------------------------------------------------------- characters --
   listCharacters: () => request<Character[]>("/characters"),

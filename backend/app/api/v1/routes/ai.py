@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep, rate_limit
 from app.api.serializers import serialize_project_detail, serialize_voice_over
 from app.core.errors import ProviderUnavailableError, ValidationError
-from app.domain.enums import GenerationMode, VoiceOverStatus
+from app.domain import social
+from app.domain.enums import (
+    GenerationMode,
+    Language,
+    Platform,
+    VideoStyle,
+    VoiceOverStatus,
+)
 from app.domain.language import match_voice
 from app.domain.planner import build_voiceover_script
 from app.domain.plan import IMAGE_PROMPT_MAX_LENGTH
@@ -15,6 +23,7 @@ from app.infrastructure.image.factory import get_image_provider, image_status
 from app.infrastructure.lipsync.factory import get_lipsync_provider, lipsync_status
 from app.infrastructure.jobs.factory import get_job_queue
 from app.infrastructure.tts.factory import get_voice_provider, voice_status
+from app.schemas.common import APIModel
 from app.schemas.project import (
     PlanApplyRequest,
     PlanGenerateRequest,
@@ -327,3 +336,64 @@ def generate_lipsync(
         "scene_id": scene.id,
         "provider": provider.name,
     }
+
+
+# ------------------------------------------------------------------ social ----
+
+
+class SocialRequest(BaseModel):
+    """Which network to write for. Defaults to the project's own platform."""
+
+    platform: Platform | None = None
+    apply: bool = True
+
+
+class SocialResponse(APIModel):
+    platform: Platform
+    caption: str
+    hashtags: list[str]
+    applied: bool
+    generated_by: str
+
+
+@router.post(
+    "/social",
+    response_model=SocialResponse,
+    summary="Write the caption and hashtags for one network",
+)
+def generate_social(
+    project_id: str, payload: SocialRequest, session: SessionDep, user: CurrentUser
+) -> SocialResponse:
+    """Compose the post text for a platform.
+
+    Deliberately not behind the AI provider: this is convention, not creativity,
+    and a deployment with no API key should still get a caption written for the
+    network it is posting to rather than one generic line for all of them.
+    """
+    project = project_service.get_owned_project(session, project_id, user)
+    platform = payload.platform or Platform(project.platform)
+
+    caption, hashtags = social.compose(
+        platform=platform,
+        language=Language(project.language),
+        style=VideoStyle(project.style),
+        subject=project.topic or project.name,
+        hook=project.hook,
+        cta=project.cta,
+        description=project.description,
+    )
+
+    if payload.apply:
+        project.caption = caption
+        project.hashtags = hashtags
+        session.commit()
+
+    return SocialResponse.model_validate(
+        {
+            "platform": platform,
+            "caption": caption,
+            "hashtags": hashtags,
+            "applied": payload.apply,
+            "generated_by": "built-in",
+        }
+    )

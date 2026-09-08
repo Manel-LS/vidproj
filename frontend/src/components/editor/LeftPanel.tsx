@@ -24,6 +24,7 @@ import type {
   Capabilities,
   EditorOptions,
   MediaItem,
+  Platform,
   ProjectDetail,
   StylePreset,
   TemplateSummary,
@@ -273,6 +274,22 @@ function TextTab({ project, onUpdateProject, busy }: LeftPanelProps) {
   const [cta, setCta] = useState(project.cta);
   const [caption, setCaption] = useState(project.caption);
   const [hashtags, setHashtags] = useState(project.hashtags.join(" "));
+  const [network, setNetwork] = useState<Platform>(project.platform);
+  const [writing, setWriting] = useState(false);
+
+  // Written by the server from the project's own words and the network's
+  // conventions. No provider is involved, so this works with no API key.
+  async function writeForNetwork() {
+    setWriting(true);
+    try {
+      const result = await api.generateSocial(project.id, { platform: network, apply: true });
+      setCaption(result.caption);
+      setHashtags(result.hashtags.join(" "));
+      onUpdateProject({ caption: result.caption, hashtags: result.hashtags });
+    } finally {
+      setWriting(false);
+    }
+  }
 
   return (
     <div className="p-4">
@@ -319,6 +336,30 @@ function TextTab({ project, onUpdateProject, busy }: LeftPanelProps) {
           placeholder="backtoschool stationery fyp"
           hint="Space separated. The # is added for you."
         />
+
+        <div className="rounded-xl border border-line bg-elevated/40 p-3">
+          <p className="mb-2 text-xs text-muted">
+            Write the caption and hashtags for one network. TikTok, Reels, Shorts and
+            Stories each get different text — no API key needed.
+          </p>
+          <div className="flex gap-2">
+            <Select
+              aria-label="Network"
+              className="flex-1"
+              value={network}
+              onChange={(event) => setNetwork(event.target.value as Platform)}
+              options={[
+                { value: "tiktok", label: "TikTok" },
+                { value: "instagram_reels", label: "Instagram Reels" },
+                { value: "youtube_shorts", label: "YouTube Shorts" },
+                { value: "instagram_story", label: "Instagram Story" },
+              ]}
+            />
+            <Button size="sm" variant="secondary" loading={writing} disabled={busy} onClick={writeForNetwork}>
+              Write
+            </Button>
+          </div>
+        </div>
 
         {project.hashtags.length ? (
           <div className="flex flex-wrap gap-1">
