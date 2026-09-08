@@ -12,6 +12,7 @@ import {
   Menu,
   Plus,
   Settings,
+  Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/dashboard", label: "Projects", icon: FolderOpen },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
+  { href: "/characters", label: "Characters", icon: Users },
   { href: "/media", label: "Media", icon: Images },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Images,
   LayoutTemplate,
@@ -16,6 +18,7 @@ import { Badge, Notice, Spinner } from "@/components/ui/Feedback";
 import { Dropzone } from "@/components/media/Dropzone";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { LanguageSelect } from "@/components/editor/LanguageSelect";
+import { api } from "@/lib/api/client";
 import type {
   Capabilities,
   MediaItem,
@@ -504,6 +507,12 @@ function AiTab({
           onChange={(language) => onUpdateProject({ language })}
         />
 
+        <CharacterPicker
+          project={project}
+          disabled={busy}
+          onChange={(characterId) => onUpdateProject({ character_id: characterId })}
+        />
+
         <Select
           label="Style"
           value={style}
@@ -605,6 +614,62 @@ function AiTab({
           </Notice>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Attaching a saved character to this project.
+ *
+ * A character crosses projects, so the list is fetched here rather than threaded
+ * through the editor's project query. Detaching sends an explicit null — which is
+ * the one field on the project endpoint where null means "clear it" rather than
+ * "unchanged".
+ */
+function CharacterPicker({
+  project,
+  disabled,
+  onChange,
+}: {
+  project: ProjectDetail;
+  disabled?: boolean;
+  onChange: (characterId: string | null) => void;
+}) {
+  const characters = useQuery({ queryKey: ["characters"], queryFn: api.listCharacters });
+  const items = characters.data ?? [];
+
+  if (!items.length) {
+    return (
+      <div className="rounded-xl border border-dashed border-line px-3 py-2.5">
+        <p className="text-xs text-muted">
+          Save a character in{" "}
+          <Link href="/characters" className="text-accent hover:underline">
+            Characters
+          </Link>{" "}
+          to keep the same face across your videos.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Select
+        label="Character"
+        hint="Its saved description is replayed into every generated image."
+        value={project.character_id ?? ""}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value || null)}
+        options={[
+          { value: "", label: "No character" },
+          ...items.map((character) => ({ value: character.id, label: character.name })),
+        ]}
+      />
+      {project.character_description ? (
+        <p className="text-2xs italic text-faint">
+          the same {project.character_description}
+        </p>
+      ) : null}
     </div>
   );
 }

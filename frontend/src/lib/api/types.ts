@@ -383,6 +383,38 @@ export interface TemplateSummary {
   }>;
 }
 
+/** What the character is, which changes how a prompt should describe it. */
+export type CharacterKind = "baby" | "child" | "teen" | "adult" | "elder" | "fictional" | "animal";
+
+export interface Character {
+  id: string;
+  name: string;
+  kind: CharacterKind;
+  age: string;
+  gender: string;
+  skin_tone: string;
+  hair: string;
+  clothes: string;
+  headwear: string;
+  expression: string;
+  personality: string;
+  environment: string;
+  /**
+   * The frozen sentence replayed verbatim into every image prompt. It is composed
+   * once, on create or on a field edit — recomposing it per generation, even from
+   * identical fields, drifts towards a different person.
+   */
+  description: string;
+  reference_media_id: string | null;
+  reference_image_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CharacterDraft = Partial<Omit<Character, "id" | "created_at" | "updated_at">> & {
+  name: string;
+};
+
 export interface ProviderStatus {
   available: boolean;
   provider: string | null;

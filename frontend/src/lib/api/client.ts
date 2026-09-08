@@ -10,6 +10,8 @@ import type {
   AudioTrack,
   AuthResponse,
   Capabilities,
+  Character,
+  CharacterDraft,
   EditorOptions,
   FormatOption,
   GenerationJob,
@@ -404,6 +406,26 @@ export const api = {
       `/projects/${projectId}/scenes/${sceneId}/lipsync`,
       { method: "POST" },
     ),
+
+  // ---------------------------------------------------------- characters --
+  listCharacters: () => request<Character[]>("/characters"),
+
+  getCharacter: (id: string) => request<Character>(`/characters/${id}`),
+
+  createCharacter: (payload: CharacterDraft) =>
+    request<Character>("/characters", { method: "POST", body: payload }),
+
+  updateCharacter: (id: string, payload: Partial<CharacterDraft>) =>
+    request<Character>(`/characters/${id}`, { method: "PATCH", body: payload }),
+
+  deleteCharacter: (id: string) => request<void>(`/characters/${id}`, { method: "DELETE" }),
+
+  /** The reference picture providers use to keep the subject recognisable. */
+  uploadCharacterReference: (id: string, file: File, onProgress?: (p: number) => void) => {
+    const form = new FormData();
+    form.append("file", file);
+    return upload<Character>(`/characters/${id}/reference`, form, onProgress);
+  },
 
   // ---------------------------------------------------------------- jobs --
   /**

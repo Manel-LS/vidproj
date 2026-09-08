@@ -153,10 +153,17 @@ def update_project(session: Session, project: Project, **changes) -> Project:
     if changes.get("hashtags") is not None:
         project.hashtags = [str(tag).lstrip("#")[:40] for tag in changes["hashtags"]][:30]
     previous_language = project.language
-    for field in ("platform", "format", "style", "language", "mode", "template_key", "character_id"):
+    for field in ("platform", "format", "style", "language", "mode", "template_key"):
         if changes.get(field) is not None:
             value = changes[field]
             project.__setattr__(field, value.value if hasattr(value, "value") else value)
+
+    # `character_id` is the one field where an explicit null carries meaning: it is
+    # how a project drops its character. Everywhere else None means "not sent", but
+    # the caller passes `exclude_unset=True`, so the key is present only when the
+    # client really sent it — and skipping None made detaching impossible.
+    if "character_id" in changes:
+        project.character_id = changes["character_id"]
 
     if changes.get("language") is not None and project.language != previous_language:
         # Re-translate the CTA, but only while it is still one of ours: a phrase
