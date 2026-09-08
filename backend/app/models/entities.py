@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -243,7 +244,12 @@ class VoiceOver(IdMixin, TimestampMixin, Base):
     #: Stored at synthesis because they cannot be recovered afterwards: getting them
     #: back would mean paying to synthesise the same narration again. Empty when the
     #: provider does not report them — which is a fact to surface, not to fake.
-    word_timings: Mapped[list[Any]] = mapped_column(default=list, nullable=False)
+    #: `server_default` as well as the ORM default: a NOT NULL column with no
+    #: database-level default breaks every INSERT that omits it, including those
+    #: from a process still running the previous mapping during a deploy.
+    word_timings: Mapped[list[Any]] = mapped_column(
+        default=list, server_default=text("'[]'"), nullable=False
+    )
 
     project: Mapped[Project] = relationship(back_populates="voice_over")
     media: Mapped[Media | None] = relationship(foreign_keys=[media_id], lazy="joined")

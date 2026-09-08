@@ -31,8 +31,18 @@ import type {
   VoiceOver,
 } from "./types";
 
+/**
+ * `127.0.0.1` rather than `localhost` on purpose.
+ *
+ * On Windows `localhost` resolves to `::1` before `127.0.0.1`, and uvicorn binds
+ * IPv4 only unless told otherwise — so `http://localhost:8000` is refused on the
+ * first address it tries and `fetch` throws, which surfaces as "Could not reach
+ * the server" even though the backend is running and healthy.
+ *
+ * Set `NEXT_PUBLIC_API_URL` for anything other than a local backend.
+ */
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
 const API = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = "reelcraft.token";
