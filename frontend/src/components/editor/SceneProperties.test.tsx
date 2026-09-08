@@ -76,6 +76,7 @@ const SCENE: Scene = {
   ],
   background_color: "#000000",
   note: "content scene · ken burns",
+  image_prompt: "",
   ai_motion: null,
   start_time: 2.6,
   media: IMAGE,

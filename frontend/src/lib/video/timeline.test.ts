@@ -23,6 +23,7 @@ function scene(
     texts: [],
     background_color: "#000000",
     note: "",
+    image_prompt: "",
     ai_motion: null,
     start_time: 0,
     media: null,

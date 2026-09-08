@@ -296,6 +296,25 @@ function Editor() {
     onError: (error) => toast.fromError(error),
   });
 
+  const generateSceneImage = useMutation({
+    mutationFn: ({ sceneId, prompt }: { sceneId: string; prompt: string }) =>
+      api.generateSceneImage(projectId, sceneId, prompt),
+    onSuccess: (result) => {
+      toast.info("Image queued", result.message);
+      void refreshJobs();
+    },
+    onError: (error) => toast.fromError(error),
+  });
+
+  const generateLipsync = useMutation({
+    mutationFn: ({ sceneId }: { sceneId: string }) => api.generateLipsync(projectId, sceneId),
+    onSuccess: (result) => {
+      toast.info("Lip sync queued", result.message);
+      void refreshJobs();
+    },
+    onError: (error) => toast.fromError(error),
+  });
+
   const startRender = useMutation({
     mutationFn: () => api.startRender(projectId),
     onSuccess: (job) => {
@@ -500,6 +519,9 @@ function Editor() {
           )}
         >
           <SceneProperties
+            // Remount per scene so the prompt fields re-seed from the selected row
+            // instead of carrying the previous scene's text over.
+            key={selectedScene?.id ?? "no-scene"}
             scene={selectedScene}
             sceneIndex={selectedIndex}
             isFirst={selectedIndex === 0}
@@ -507,11 +529,20 @@ function Editor() {
             options={options.data}
             capabilities={capabilities.data}
             saving={updateScene.isPending}
+            generatingImage={generateSceneImage.isPending}
+            syncingLips={generateLipsync.isPending}
+            voiceReady={data.voice_over?.status === "ready"}
             onChange={(changes) =>
               selectedScene && updateScene.mutate({ sceneId: selectedScene.id, changes })
             }
             onGenerateAiMotion={(prompt) =>
               selectedScene && generateAiMotion.mutate({ sceneId: selectedScene.id, prompt })
+            }
+            onGenerateImage={(prompt) =>
+              selectedScene && generateSceneImage.mutate({ sceneId: selectedScene.id, prompt })
+            }
+            onGenerateLipsync={() =>
+              selectedScene && generateLipsync.mutate({ sceneId: selectedScene.id })
             }
           />
         </aside>

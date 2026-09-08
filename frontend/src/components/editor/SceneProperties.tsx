@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Crosshair, Film, Plus, Sparkles, Trash2, Type } from "lucide-react";
+import { Crosshair, Film, Plus, Smile, Sparkles, Trash2, Type, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Slider, Textarea, Toggle } from "@/components/ui/Field";
 import { Badge, Notice } from "@/components/ui/Feedback";
@@ -62,6 +62,11 @@ export function SceneProperties({
   capabilities,
   onChange,
   onGenerateAiMotion,
+  onGenerateImage,
+  onGenerateLipsync,
+  generatingImage,
+  syncingLips,
+  voiceReady = false,
   saving,
 }: {
   scene: Scene | null;
@@ -72,10 +77,18 @@ export function SceneProperties({
   capabilities: Capabilities | undefined;
   onChange: (changes: Record<string, unknown>) => void;
   onGenerateAiMotion: (prompt: string) => void;
+  onGenerateImage?: (prompt: string) => void;
+  onGenerateLipsync?: () => void;
+  generatingImage?: boolean;
+  syncingLips?: boolean;
+  /** The project has a synthesised narration; lip sync has nothing to sync to without it. */
+  voiceReady?: boolean;
   saving?: boolean;
 }) {
   const { selectedTextId, selectText } = useEditorStore();
   const [aiPrompt, setAiPrompt] = useState("");
+  // Keyed on the scene by the caller, so switching scenes re-seeds this from the row.
+  const [imagePrompt, setImagePrompt] = useState(scene?.image_prompt ?? "");
 
   const texts = useMemo(() => scene?.texts ?? [], [scene]);
   // Falls back to the first layer, so a scene whose selected layer was just deleted
@@ -111,6 +124,13 @@ export function SceneProperties({
 
   const activeIndex = activeText ? texts.indexOf(activeText) : -1;
   const aiMotion = capabilities?.ai_motion;
+  const imageAi = capabilities?.image;
+  const lipsync = capabilities?.lipsync;
+  // Lip sync needs a clip to move and a narration to move it to. The silent clip is
+  // preferred: re-syncing an already-speaking mouth is what produces the mush.
+  const hasClip = Boolean(
+    scene.ai_motion?.silent_media_id || scene.ai_motion?.generated_media_id,
+  );
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -443,6 +463,41 @@ export function SceneProperties({
           )}
         </Section>
 
+        {/* --------------------------------------------------- generated image */}
+        <Section title="AI image" icon={<Wand2 className="h-3.5 w-3.5" />}>
+          {imageAi?.available ? (
+            <>
+              <Textarea
+                label="Image prompt"
+                value={imagePrompt}
+                onChange={(event) => setImagePrompt(event.target.value)}
+                onBlur={() =>
+                  imagePrompt !== scene.image_prompt && onChange({ image_prompt: imagePrompt })
+                }
+                placeholder="Describe the shot: subject, clothing, environment, lighting, camera"
+                maxLength={1200}
+                className="min-h-[72px]"
+                hint="Saved on the scene, so regenerating reproduces the same shot."
+              />
+              <Button
+                size="sm"
+                className="mt-2 w-full"
+                variant="secondary"
+                disabled={!imagePrompt.trim() || generatingImage}
+                loading={generatingImage}
+                onClick={() => onGenerateImage?.(imagePrompt)}
+              >
+                {scene.media_id ? "Regenerate" : "Generate"} with {imageAi.display_name}
+              </Button>
+            </>
+          ) : (
+            <Notice tone="warning">
+              {imageAi?.message ??
+                "Image generation is unavailable because no image provider is configured."}
+            </Notice>
+          )}
+        </Section>
+
         {/* -------------------------------------------------------- AI motion */}
         <Section title="AI Motion" icon={<Sparkles className="h-3.5 w-3.5" />}>
           {aiMotion?.available ? (
@@ -477,6 +532,43 @@ export function SceneProperties({
             <Notice tone="warning">
               {aiMotion?.message ??
                 "AI Motion is unavailable because no video generation provider is configured."}
+            </Notice>
+          )}
+        </Section>
+
+        {/* ---------------------------------------------------------- lip sync */}
+        <Section title="Lip sync" icon={<Smile className="h-3.5 w-3.5" />}>
+          {lipsync?.available ? (
+            <>
+              <p className="text-xs text-muted">
+                Syncs this scene&apos;s clip to its own slice of the narration — not the whole
+                voice-over, which would put every scene on the opening words.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                disabled={!hasClip || !voiceReady || syncingLips}
+                loading={syncingLips}
+                onClick={() => onGenerateLipsync?.()}
+              >
+                Sync with {lipsync.display_name}
+              </Button>
+              {!hasClip ? (
+                <Notice tone="info">Generate this scene&apos;s motion clip first.</Notice>
+              ) : !voiceReady ? (
+                <Notice tone="info">Generate the voice-over first.</Notice>
+              ) : scene.ai_motion?.lipsync_provider ? (
+                <Notice tone="success">
+                  This scene&apos;s clip is synced. The silent original is kept, so you can sync
+                  again from it.
+                </Notice>
+              ) : null}
+            </>
+          ) : (
+            <Notice tone="warning">
+              {lipsync?.message ??
+                "Lip sync is unavailable because no lip-sync provider is configured."}
             </Notice>
           )}
         </Section>

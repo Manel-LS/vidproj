@@ -62,6 +62,7 @@ def serialize_scene(scene: Scene, *, start_time: float = 0.0) -> SceneResponse:
             "texts": list(scene.texts or []),
             "background_color": scene.background_color,
             "note": scene.note or "",
+            "image_prompt": scene.image_prompt or "",
             "ai_motion": scene.ai_motion,
             "start_time": round(start_time, 3),
             "media": serialize_media(scene.media),

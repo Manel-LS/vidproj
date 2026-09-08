@@ -70,6 +70,9 @@ def _apply_domain_scene(scene: Scene, plan_scene: PlanScene) -> None:
     scene.texts = [text.model_dump(mode="json") for text in plan_scene.texts]
     scene.background_color = plan_scene.background_color
     scene.note = plan_scene.note
+    # Every caller must seed the incoming PlanScene with the row's current prompt,
+    # or an unrelated edit — a duration nudge — would blank it back to the default.
+    scene.image_prompt = plan_scene.image_prompt
 
 
 def create_scene(
@@ -127,6 +130,7 @@ def update_scene(session: Session, project: Project, scene: Scene, changes: dict
         texts=[TextOverlay.model_validate(text) for text in (scene.texts or [])],
         background_color=scene.background_color,
         note=scene.note or "",
+        image_prompt=scene.image_prompt or "",
     )
 
     payload = current.model_dump(mode="json")
@@ -136,6 +140,7 @@ def update_scene(session: Session, project: Project, scene: Scene, changes: dict
     for field in (
         "duration", "animation", "animation_intensity", "focus_x", "focus_y",
         "transition", "transition_duration", "background_color", "note",
+        "image_prompt",
     ):
         if field in changes and changes[field] is not None:
             value = changes[field]
@@ -197,6 +202,10 @@ def duplicate_scene(session: Session, project: Project, scene: Scene) -> Scene:
         texts=list(scene.texts or []),
         background_color=scene.background_color,
         note=scene.note,
+        # The prompt is a creative input, not a generated asset: a duplicated shot
+        # should be regenerable from the same description. The generated clip
+        # itself is deliberately not carried over — the copy owns no output yet.
+        image_prompt=scene.image_prompt,
     )
     session.add(clone)
     project.scenes.append(clone)

@@ -115,6 +115,14 @@ export interface AiMotionSpec {
   generated_media_id: string | null;
   provider: string | null;
   job_reference: string | null;
+  /**
+   * The clip before lip sync. Kept so a sync can be redone — or undone — without
+   * paying to generate the motion again: once lip sync succeeds
+   * `generated_media_id` points at the speaking clip and this at the silent one.
+   */
+  silent_media_id?: string | null;
+  lipsync_provider?: string | null;
+  lipsync_job_reference?: string | null;
   error?: string;
 }
 
@@ -132,6 +140,8 @@ export interface Scene {
   texts: TextOverlay[];
   background_color: string;
   note: string;
+  /** What the image provider was asked for; kept so a regeneration repeats the shot. */
+  image_prompt: string;
   ai_motion: AiMotionSpec | null;
   start_time: number;
   media: MediaItem | null;

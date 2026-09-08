@@ -387,6 +387,24 @@ export const api = {
       { method: "POST" },
     ),
 
+  /**
+   * Queue this scene's still image. The prompt is stored on the scene before the
+   * job starts, so regenerating reproduces the same shot; sending an empty one
+   * deliberately re-runs the prompt already saved there.
+   */
+  generateSceneImage: (projectId: string, sceneId: string, prompt: string) =>
+    request<{ status: string; message: string; scene_id: string; provider: string }>(
+      `/projects/${projectId}/scenes/${sceneId}/image?prompt=${encodeURIComponent(prompt)}`,
+      { method: "POST" },
+    ),
+
+  /** Takes no body: the clip is on the scene and the narration on the project. */
+  generateLipsync: (projectId: string, sceneId: string) =>
+    request<{ status: string; message: string; scene_id: string; provider: string }>(
+      `/projects/${projectId}/scenes/${sceneId}/lipsync`,
+      { method: "POST" },
+    ),
+
   // ---------------------------------------------------------------- jobs --
   /**
    * Everything the project has generated or is generating, in one call.

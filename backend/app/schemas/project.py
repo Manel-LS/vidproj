@@ -15,7 +15,7 @@ from app.domain.enums import (
     VideoStyle,
     VoiceOverStatus,
 )
-from app.domain.plan import TextOverlay, VideoPlan
+from app.domain.plan import IMAGE_PROMPT_MAX_LENGTH, TextOverlay, VideoPlan
 from app.schemas.common import APIModel
 from app.schemas.media import AudioTrackResponse, MediaResponse
 
@@ -67,6 +67,10 @@ class SceneResponse(APIModel):
     texts: list[TextOverlay]
     background_color: str
     note: str
+    #: What the image provider was asked for. Returned so the editor can show what
+    #: produced this shot and pre-fill a regeneration with the same prompt — the
+    #: column existed and was written, but never left the server.
+    image_prompt: str = ""
     ai_motion: dict | None = None
     #: Absolute start time on the final timeline; filled in by the router.
     start_time: float = 0.0
@@ -91,6 +95,7 @@ class SceneUpdate(BaseModel):
     texts: list[TextOverlay] | None = Field(default=None, max_length=4)
     background_color: str | None = None
     note: str | None = Field(default=None, max_length=400)
+    image_prompt: str | None = Field(default=None, max_length=IMAGE_PROMPT_MAX_LENGTH)
 
 
 class ReorderScenesRequest(BaseModel):
