@@ -122,6 +122,18 @@ class Settings(BaseSettings):
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "alloy"
 
+    # ---- depth (still -> 2.5D parallax) ------------------------------------
+    #: `onnx` runs Depth Anything V2 Small locally on the CPU. It needs the optional
+    #: dependencies (`requirements-depth.txt`) and the model file; without either it
+    #: reports unavailable and scenes keep their flat camera moves.
+    depth_provider: Literal["none", "onnx"] = "none"
+    depth_model_path: str = str(BACKEND_ROOT / "var" / "models" / "depth-anything-v2-small-q8.onnx")
+    #: Input side in pixels, rounded down to a multiple of 14 by the provider.
+    #: 518 is the model's training size; smaller is faster and visibly coarser.
+    depth_input_size: int = 518
+    #: Kept low on purpose: depth runs while ffmpeg wants the cores.
+    depth_threads: int = 2
+
     # ---- AI: image to video ------------------------------------------------
     # ---- image generation (text -> still) --------------------------------
     image_provider: Literal["none", "openai", "replicate", "google"] = "none"

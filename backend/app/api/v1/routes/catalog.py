@@ -26,6 +26,7 @@ from app.domain.styles import STYLE_PRESETS
 from app.domain.subtitles import SUBTITLE_PRESETS, SubtitleStyle
 from app.infrastructure.i2v.factory import i2v_status
 from app.domain.language import language_support
+from app.infrastructure.depth.factory import depth_status
 from app.infrastructure.image.factory import image_status
 from app.infrastructure.lipsync.factory import lipsync_status
 from app.infrastructure.imaging.fonts import font_report
@@ -187,6 +188,7 @@ def capabilities() -> dict:
             "languages": language_support(voice.list_voices()),
         },
         "image": image_status(),
+        "depth": depth_status(),
         "ai_motion": i2v_status(),
         "lipsync": lipsync_status(),
         "queue": queue_status(),
