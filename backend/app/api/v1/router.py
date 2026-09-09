@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.routes import (
     ai,
     auth,
+    brand,
     catalog,
     characters,
     files,
@@ -21,6 +22,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(catalog.router)
 api_router.include_router(characters.router)
+api_router.include_router(brand.router)
 api_router.include_router(projects.router)
 api_router.include_router(media.router)
 api_router.include_router(scenes.router)

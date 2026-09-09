@@ -92,6 +92,7 @@ def create_project(
     language: Language = Language.ENGLISH,
     template_key: str | None = None,
     character_id: str | None = None,
+    brand_kit_id: str | None = None,
     target_duration: float | None = None,
     mode: GenerationMode = GenerationMode.STANDARD,
     subtitle_style: SubtitleStyle = SubtitleStyle.NONE,
@@ -116,6 +117,7 @@ def create_project(
         mode=mode.value,
         template_key=template_key,
         character_id=character_id,
+        brand_kit_id=brand_kit_id,
         subtitle_style=subtitle_style.value if hasattr(subtitle_style, "value") else str(subtitle_style),
         target_duration=target_duration,
         # The style preset's CTA is English. A project created in another language
@@ -167,6 +169,9 @@ def update_project(session: Session, project: Project, **changes) -> Project:
     # client really sent it — and skipping None made detaching impossible.
     if "character_id" in changes:
         project.character_id = changes["character_id"]
+    # Same reasoning: an explicit null is how a project stops using a brand kit.
+    if "brand_kit_id" in changes:
+        project.brand_kit_id = changes["brand_kit_id"]
 
     if changes.get("language") is not None and project.language != previous_language:
         # Re-translate the CTA, but only while it is still one of ours: a phrase

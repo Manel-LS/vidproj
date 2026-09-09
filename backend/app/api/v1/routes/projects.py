@@ -6,7 +6,7 @@ from app.api.deps import CurrentUser, SessionDep, rate_limit
 from app.api.serializers import serialize_project_detail, serialize_project_summary
 from app.schemas.common import Page
 from app.schemas.project import ProjectCreate, ProjectDetail, ProjectSummary, ProjectUpdate
-from app.services import character_service, project_service
+from app.services import brand_kit_service, character_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"], dependencies=[Depends(rate_limit)])
 
@@ -40,6 +40,8 @@ def create_project(payload: ProjectCreate, session: SessionDep, user: CurrentUse
         # Validated here rather than trusted: an unchecked id would let a project
         # point at someone else's character.
         character_service.get_owned_character(session, payload.character_id, user)
+    if payload.brand_kit_id:
+        brand_kit_service.get_owned_kit(session, payload.brand_kit_id, user)
     project = project_service.create_project(
         session,
         user,
@@ -52,6 +54,7 @@ def create_project(payload: ProjectCreate, session: SessionDep, user: CurrentUse
         language=payload.language,
         template_key=payload.template_key,
         character_id=payload.character_id,
+        brand_kit_id=payload.brand_kit_id,
         target_duration=payload.target_duration,
         mode=payload.mode,
         subtitle_style=payload.subtitle_style,
@@ -76,6 +79,8 @@ def update_project(
     changes = payload.model_dump(exclude_unset=True)
     if changes.get("character_id"):
         character_service.get_owned_character(session, changes["character_id"], user)
+    if changes.get("brand_kit_id"):
+        brand_kit_service.get_owned_kit(session, changes["brand_kit_id"], user)
     project_service.update_project(session, project, **changes)
     session.commit()
     session.refresh(project)

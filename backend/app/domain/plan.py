@@ -26,6 +26,7 @@ from app.domain.enums import (
     VideoFormat,
     VideoStyle,
 )
+from app.domain.enums import LogoPosition
 from app.domain.subtitles import SubtitleStyle
 
 PLAN_VERSION = 1
@@ -211,6 +212,34 @@ class SubtitleSpec(StrictModel):
         return self.style is not SubtitleStyle.NONE
 
 
+class BrandSpec(StrictModel):
+    """A brand's marks, carried on the plan so a render is reproducible.
+
+    Copied onto the plan rather than looked up at render time on purpose: a video
+    rendered today and the same project rendered after the kit is edited would
+    otherwise disagree, and the older render would be unexplainable.
+    """
+
+    brand_name: str = Field(default="", max_length=120)
+    slogan: str = Field(default="", max_length=200)
+    primary_color: str = "#FFFFFF"
+    accent_color: str = "#FFD166"
+    background_color: str = "#101014"
+    logo_media_id: str | None = None
+    logo_position: LogoPosition = LogoPosition.TOP_RIGHT
+    logo_scale: float = Field(default=0.16, ge=0.04, le=0.35)
+    logo_opacity: float = Field(default=0.9, ge=0.1, le=1.0)
+
+    @field_validator("primary_color", "accent_color", "background_color")
+    @classmethod
+    def _check_colour(cls, value: str) -> str:
+        return _validate_hex(value)
+
+    @property
+    def has_logo(self) -> bool:
+        return bool(self.logo_media_id)
+
+
 class VideoPlan(StrictModel):
     """The complete, renderable description of a video."""
 
@@ -223,6 +252,7 @@ class VideoPlan(StrictModel):
     audio: AudioPlan | None = None
     voiceover: VoiceOverPlan | None = None
     subtitles: SubtitleSpec = Field(default_factory=SubtitleSpec)
+    brand: BrandSpec | None = None
     hook: str = Field(default="", max_length=MAX_TEXT_LENGTH)
     cta: str = Field(default="", max_length=MAX_TEXT_LENGTH)
     caption: str = Field(default="", max_length=2200)
@@ -322,6 +352,8 @@ class VideoPlan(StrictModel):
             for s in self.scenes
             if s.ai_motion and s.ai_motion.generated_media_id
         ]
+        if self.brand and self.brand.logo_media_id:
+            ids.append(self.brand.logo_media_id)
         if self.audio and self.audio.media_id:
             ids.append(self.audio.media_id)
         if self.voiceover and self.voiceover.media_id:

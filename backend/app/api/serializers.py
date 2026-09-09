@@ -171,6 +171,7 @@ def serialize_project_detail(
             "language": project.language,
             "rtl": is_rtl(project.language),
             "character_id": project.character_id,
+            "brand_kit_id": project.brand_kit_id,
             "character_description": (
                 project.character.description if project.character is not None else ""
             ),

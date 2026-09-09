@@ -1,5 +1,6 @@
 from app.models.entities import (
     AudioTrack,
+    BrandKit,
     Character,
     GenerationJob,
     Media,
@@ -13,6 +14,7 @@ from app.models.entities import (
 
 __all__ = [
     "AudioTrack",
+    "BrandKit",
     "Character",
     "GenerationJob",
     "Media",

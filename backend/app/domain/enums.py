@@ -136,6 +136,15 @@ class FontFamily(StrEnum):
     MONO = "mono"
 
 
+class LogoPosition(StrEnum):
+    """Which corner a brand mark sits in."""
+
+    TOP_LEFT = "top_left"
+    TOP_RIGHT = "top_right"
+    BOTTOM_LEFT = "bottom_left"
+    BOTTOM_RIGHT = "bottom_right"
+
+
 class GenerationMode(StrEnum):
     """Requirement 12: two generation modes."""
 

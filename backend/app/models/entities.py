@@ -54,6 +54,9 @@ class User(IdMixin, TimestampMixin, Base):
     projects: Mapped[list["Project"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    brand_kits: Mapped[list["BrandKit"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
     characters: Mapped[list["Character"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -90,6 +93,11 @@ class Project(IdMixin, TimestampMixin, Base):
     character_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True
     )
+    brand_kit_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("brand_kits.id", ondelete="SET NULL", use_alter=True,
+                              name="fk_projects_brand_kit"),
+        nullable=True,
+    )
     target_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     hook: Mapped[str] = mapped_column(String(300), default="", nullable=False)
@@ -107,6 +115,9 @@ class Project(IdMixin, TimestampMixin, Base):
     user: Mapped[User] = relationship(back_populates="projects")
     character: Mapped["Character | None"] = relationship(
         foreign_keys=[character_id], lazy="joined"
+    )
+    brand_kit: Mapped["BrandKit | None"] = relationship(
+        foreign_keys=[brand_kit_id], lazy="joined"
     )
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="project",
@@ -299,6 +310,53 @@ class Character(IdMixin, TimestampMixin, Base):
     user: Mapped[User] = relationship(back_populates="characters")
     reference_media: Mapped["Media | None"] = relationship(
         foreign_keys=[reference_media_id], lazy="joined"
+    )
+
+
+class BrandKit(IdMixin, TimestampMixin, Base):
+    """A brand's constants, so every video made for it looks like the same brand.
+
+    Reused across projects like a character is, and for the same reason: the value
+    of a brand kit is that it does not change between videos. A project points at
+    one; deleting the kit leaves the project working, because the plan already
+    carries the colours it was rendered with.
+
+    Colours are stored, the logo is a media file, and the slogan is text — nothing
+    here is derived at render time, so a video rendered today and the same project
+    rendered next month agree.
+    """
+
+    __tablename__ = "brand_kits"
+    __table_args__ = (Index("ix_brand_kits_user_updated", "user_id", "updated_at"),)
+
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    brand_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    slogan: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+
+    #: Applied to titles and to the accent of the on-screen copy.
+    primary_color: Mapped[str] = mapped_column(String(9), default="#FFFFFF", nullable=False)
+    accent_color: Mapped[str] = mapped_column(String(9), default="#FFD166", nullable=False)
+    #: Background of a card with no image behind it — the closing CTA, usually.
+    background_color: Mapped[str] = mapped_column(String(9), default="#101014", nullable=False)
+    font_family: Mapped[str] = mapped_column(String(16), default="sans_bold", nullable=False)
+
+    #: Corner watermark. Same `use_alter` reasoning as the character reference:
+    #: brand_kits -> media -> projects -> brand_kits is a cycle.
+    logo_media_id: Mapped[str | None] = mapped_column(
+        String(32),
+        ForeignKey("media.id", ondelete="SET NULL", use_alter=True, name="fk_brand_kits_logo_media"),
+        nullable=True,
+    )
+    logo_position: Mapped[str] = mapped_column(String(16), default="top_right", nullable=False)
+    logo_scale: Mapped[float] = mapped_column(Float, default=0.16, nullable=False)
+    logo_opacity: Mapped[float] = mapped_column(Float, default=0.9, nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="brand_kits")
+    logo_media: Mapped["Media | None"] = relationship(
+        foreign_keys=[logo_media_id], lazy="joined"
     )
 
 

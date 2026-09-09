@@ -495,7 +495,7 @@ class FFmpegRenderEngine(RenderEngine):
         # add a strip of text.
         subtitles = self._prepare_subtitles(request, on_progress)
 
-        if len(assets) == 1 and subtitles is None:
+        if len(assets) == 1 and subtitles is None and self._logo_path(request) is None:
             shutil.copyfile(assets[0].clip_path, target)
             self._report_span(on_progress, _STAGE_TRANSITIONS, 1.0, "Applying transitions")
             return
@@ -521,15 +521,34 @@ class FFmpegRenderEngine(RenderEngine):
                 )
             current = label
 
+        next_input = len(assets)
         if subtitles is not None:
             args += ["-framerate", str(subtitles.fps), "-i", subtitles.sequence_pattern]
-            index = len(assets)
-            chains.append(f"[{index}:v]format=rgba,setpts=PTS-STARTPTS[subs]")
+            chains.append(f"[{next_input}:v]format=rgba,setpts=PTS-STARTPTS[subs]")
             chains.append(
                 f"[{current}][subs]overlay=x={subtitles.x}:y={subtitles.y}"
                 ":eof_action=pass:shortest=0[subbed]"
             )
             current = "subbed"
+            next_input += 1
+
+        # The brand mark goes on last, above the subtitles: it identifies the video
+        # and must not be the thing a caption covers.
+        logo = self._logo_path(request)
+        if logo is not None:
+            brand = request.plan.brand
+            args += ["-loop", "1", "-i", str(logo)]
+            width, height = request.plan.dimensions
+            margin = int(round(min(width, height) * 0.04))
+            logo_w = max(16, int(round(width * brand.logo_scale)))
+            x = f"{margin}" if brand.logo_position.value.endswith("left") else f"W-w-{margin}"
+            y = f"{margin}" if brand.logo_position.value.startswith("top") else f"H-h-{margin}"
+            chains.append(
+                f"[{next_input}:v]format=rgba,scale={logo_w}:-1,"
+                f"colorchannelmixer=aa={brand.logo_opacity:.3f}[logo]"
+            )
+            chains.append(f"[{current}][logo]overlay=x={x}:y={y}:eof_action=pass:shortest=1[branded]")
+            current = "branded"
 
         chains.append(f"[{current}]format=yuv420p,fps={plan.fps}[vout]")
 
@@ -545,6 +564,23 @@ class FFmpegRenderEngine(RenderEngine):
             ),
             cancel_check=request.cancel_check,
         )
+
+
+    def _logo_path(self, request: RenderRequest) -> Path | None:
+        """The brand mark, when the plan carries one and the file is really there.
+
+        A missing file returns None rather than failing the render: the logo is an
+        identifying detail, and losing it is a far smaller loss than losing the
+        video it was going on.
+        """
+        brand = request.plan.brand
+        if brand is None or not brand.has_logo:
+            return None
+        path = request.media_paths.get(brand.logo_media_id or "")
+        if path is None or not Path(path).is_file():
+            logger.warning("Brand logo %s is missing; rendering without it", brand.logo_media_id)
+            return None
+        return Path(path)
 
     # -- stage B2: subtitles -------------------------------------------------
 

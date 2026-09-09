@@ -31,6 +31,7 @@ class ProjectCreate(BaseModel):
     language: Language = Language.ENGLISH
     template_key: str | None = None
     character_id: str | None = None
+    brand_kit_id: str | None = None
     target_duration: float | None = Field(default=None, ge=2.0, le=180.0)
     mode: GenerationMode = GenerationMode.STANDARD
     subtitle_style: SubtitleStyle = SubtitleStyle.NONE
@@ -48,6 +49,7 @@ class ProjectUpdate(BaseModel):
     fps: int | None = Field(default=None, ge=15, le=60)
     template_key: str | None = None
     character_id: str | None = None
+    brand_kit_id: str | None = None
     target_duration: float | None = Field(default=None, ge=2.0, le=180.0)
     hook: str | None = Field(default=None, max_length=300)
     cta: str | None = Field(default=None, max_length=300)
@@ -184,6 +186,7 @@ class ProjectDetail(ProjectSummary):
     language: Language = Language.ENGLISH
     rtl: bool = False
     character_id: str | None = None
+    brand_kit_id: str | None = None
     #: The frozen character description, so the editor can show what every image
     #: prompt is being prefixed with.
     character_description: str = ""

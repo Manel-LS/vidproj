@@ -19,6 +19,7 @@ from app.domain.enums import (
 from app.domain.insight import ImageInsight
 from app.domain.plan import (
     MAX_WORD_TIMINGS,
+    BrandSpec,
     AiMotionSpec,
     AudioPlan,
     PlanScene,
@@ -28,6 +29,7 @@ from app.domain.plan import (
     VoiceOverPlan,
     WordTimingEntry,
 )
+from app.domain.enums import LogoPosition
 from app.domain.subtitles import SubtitleStyle
 from app.infrastructure.imaging.analyzer import insight_from_media
 from app.models import Media, Project, Scene
@@ -94,6 +96,7 @@ def project_to_plan(project: Project) -> VideoPlan:
             else [],
         ),
         subtitles=SubtitleSpec(style=SubtitleStyle(project.subtitle_style or "none")),
+        brand=_brand_spec(project),
         hook=project.hook,
         cta=project.cta,
         caption=project.caption,
@@ -102,6 +105,28 @@ def project_to_plan(project: Project) -> VideoPlan:
         notes=project.plan_notes,
     )
     return plan.normalised()
+
+
+def _brand_spec(project: Project) -> BrandSpec | None:
+    """Copy the brand kit onto the plan, or None when the project uses none.
+
+    Copied rather than referenced: the plan is what a render is reproduced from,
+    and a kit edited next month must not silently change what an old render meant.
+    """
+    kit = project.brand_kit
+    if kit is None:
+        return None
+    return BrandSpec(
+        brand_name=kit.brand_name or "",
+        slogan=kit.slogan or "",
+        primary_color=kit.primary_color,
+        accent_color=kit.accent_color,
+        background_color=kit.background_color,
+        logo_media_id=kit.logo_media_id,
+        logo_position=LogoPosition(kit.logo_position or "top_right"),
+        logo_scale=kit.logo_scale,
+        logo_opacity=kit.logo_opacity,
+    )
 
 
 def apply_plan_to_project(session: Session, project: Project, plan: VideoPlan) -> Project:
