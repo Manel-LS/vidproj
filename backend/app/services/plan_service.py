@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
-from app.domain.enums import Language, GenerationMode, VideoFormat, VideoStyle
-from app.domain.language import get_profile
+from app.domain.enums import Language, GenerationMode, Platform, VideoFormat, VideoStyle
+from app.domain.language import get_profile, scripts_match
 from app.domain.plan import VideoPlan, validate_plan
 from app.domain.planner import PlanRequest, build_plan
 from app.domain.templates import get_template
@@ -69,6 +69,7 @@ def _build_request(
         include_voiceover=include_voiceover,
         language=Language(project.language),
         mode=GenerationMode(project.mode),
+        platform=Platform(project.platform),
         audio_media_id=audio.media_id if audio else None,
     )
 
@@ -101,6 +102,7 @@ def generate_plan(
             else "AI generation is temporarily unavailable. Your plan was built with the "
             "built-in planner — you can still edit every scene."
         )
+        notice = " ".join(part for part in (notice, _script_warning(project, request.subject)) if part)
         return PlanOutcome(build_plan(request), "heuristic", ai_used=False, notice=notice)
 
     brief = PlanBrief(
@@ -134,6 +136,26 @@ def generate_plan(
                 "built-in planner — you can still edit every scene."
             ),
         )
+
+
+def _script_warning(project: Project, subject: str) -> str:
+    """Warn when the subject is not written in the language's own script.
+
+    Not a style opinion. The narration is synthesised from this text, so a Latin
+    brand inside an Arabic script is read letter by letter, and because the
+    subtitle timings come from that same synthesis the highlighting drifts with
+    it. The planner already declines to weave a mismatched subject into the body
+    copy; this is what tells the user why their video says less about the product
+    than they expected.
+    """
+    if not subject.strip() or scripts_match(subject, project.language):
+        return ""
+    label = get_profile(project.language).label
+    return (
+        f"Your subject is not written in {label}. The on-screen copy leaves it out, "
+        f"and a {label} voice will mispronounce it — rewrite the topic in {label} "
+        "to have it read and shown properly."
+    )
 
 
 def apply_plan(session: Session, project: Project, plan: VideoPlan) -> Project:

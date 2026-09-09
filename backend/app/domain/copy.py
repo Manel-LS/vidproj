@@ -177,6 +177,41 @@ _HASHTAGS: dict[Language, dict[str, list[str]]] = {
 }
 
 
+#: Beats that name the subject, so a six-scene video does not spend six cards
+#: saying nothing about what it is selling. Kept deliberately short and plain:
+#: these are placeholders in four languages, and a construction simple enough to
+#: be safe everywhere beats a clever one I cannot verify in derja.
+_SUBJECT_BEATS: dict[Language, dict[str, tuple[str, ...]]] = {
+    Language.FRENCH: {
+        "promo": ("{subject}, de près", "Pourquoi {subject}"),
+        "sale": ("{subject} à ce prix", "{subject}, maintenant"),
+        "trend": ("{subject} 👀", "Sérieux, {subject}"),
+        "story": ("{subject}, la suite", "Et {subject} dans tout ça"),
+        "place": ("{subject}, pièce par pièce", "Dans {subject}"),
+        "food": ("{subject}, de près", "{subject} tout chaud"),
+        "teach": ("{subject}, en clair", "Retenez {subject}"),
+    },
+    Language.ARABIC: {
+        "promo": ("{subject} عن قرب", "لماذا {subject}"),
+        "sale": ("{subject} بهذا السعر", "{subject} الآن"),
+        "trend": ("{subject} 👀", "شوف {subject}"),
+        "story": ("{subject}، والبقية", "ثم {subject}"),
+        "place": ("{subject} غرفة غرفة", "داخل {subject}"),
+        "food": ("{subject} عن قرب", "{subject} ساخن"),
+        "teach": ("{subject} ببساطة", "تذكر {subject}"),
+    },
+    Language.TUNISIAN: {
+        "promo": ("{subject} من قريب", "علاش {subject}"),
+        "sale": ("{subject} بالثمن هذا", "{subject} توا"),
+        "trend": ("{subject} 👀", "شوف {subject}"),
+        "story": ("{subject}، والباقي", "وبعد {subject}"),
+        "place": ("{subject} بيت بيت", "في {subject}"),
+        "food": ("{subject} من قريب", "{subject} سخون"),
+        "teach": ("{subject} بالساهل", "احفظ {subject}"),
+    },
+}
+
+
 def tone_of(style: VideoStyle) -> str:
     return _TONE_OF_STYLE.get(style, "promo")
 
@@ -203,3 +238,9 @@ def cta(language: Language | str, style: VideoStyle) -> str:
 
 def hashtags(language: Language | str, style: VideoStyle) -> list[str]:
     return list(_HASHTAGS[Language(language)][tone_of(style)])
+
+
+def subject_beats(language: Language | str, style: VideoStyle) -> tuple[str, ...]:
+    """Beats carrying `{subject}`. Empty when the language has no table."""
+    table = _SUBJECT_BEATS.get(Language(language))
+    return table[tone_of(style)] if table else ()

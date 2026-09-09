@@ -15,8 +15,10 @@ import re
 from dataclasses import dataclass, field
 
 from app.domain import copy as copy_tables
+from app.domain import social
 from app.domain.enums import (
     Language,
+    Platform,
     AnimationType,
     GenerationMode,
     TextAnimation,
@@ -28,6 +30,7 @@ from app.domain.enums import (
     VideoStyle,
 )
 from app.domain.insight import ImageInsight
+from app.domain.language import scripts_match
 from app.domain.plan import (
     MAX_TOTAL_SECONDS,
     MIN_SCENE_SECONDS,
@@ -58,6 +61,9 @@ class PlanRequest:
     include_voiceover: bool = False
     language: Language = Language.ENGLISH
     mode: GenerationMode = GenerationMode.STANDARD
+    #: Which network the post is for. The caption and the hashtags are written
+    #: to that network's conventions, which differ enough to matter.
+    platform: Platform = Platform.TIKTOK
     audio_media_id: str | None = None
     #: Optional per-scene copy supplied by an LLM: index -> list of lines.
     copy_lines: dict[int, list[str]] = field(default_factory=dict)
@@ -121,13 +127,60 @@ def default_hook(style: VideoStyle, subject: str, seed: int, language: Language 
     return template.replace("{subject}", _titlecase_subject(subject)).strip()
 
 
-def default_beat(style: VideoStyle, index: int, language: Language = Language.ENGLISH) -> str:
-    options = (
+#: Subject-bearing beats for English, matching `copy.subject_beats` for the rest.
+_SUBJECT_BEATS: dict[VideoStyle, tuple[str, ...]] = {
+    VideoStyle.PRODUCT_SHOWCASE: ("{subject}, up close", "Why {subject}"),
+    VideoStyle.TIKTOK_TREND: ("{subject} 👀", "Wait — {subject}"),
+    VideoStyle.MINIMAL: ("{subject}", "{subject}, simply"),
+    VideoStyle.LUXURY: ("{subject}, in detail", "The making of {subject}"),
+    VideoStyle.SALE: ("{subject} at this price", "{subject}, now"),
+    VideoStyle.STORYTELLING: ("{subject}, continued", "And then {subject}"),
+    VideoStyle.REAL_ESTATE: ("{subject}, room by room", "Inside {subject}"),
+    VideoStyle.FOOD: ("{subject}, up close", "{subject}, straight out"),
+    VideoStyle.EDUCATIONAL: ("{subject}, plainly", "Remember {subject}"),
+    VideoStyle.CUSTOM: ("{subject}", "More on {subject}"),
+}
+
+
+def default_beat(
+    style: VideoStyle,
+    index: int,
+    language: Language = Language.ENGLISH,
+    subject: str = "",
+) -> str:
+    """One mid-video line.
+
+    Two things this fixes. A six-scene video used to cycle four beats and repeat
+    the first two, and none of them ever named what was being sold — six cards of
+    "Built to last" over six pictures of a school bag. Naming the subject every
+    other beat is what makes the copy read as being about *something*.
+
+    The subject is only woven in when it is written in the same script as the
+    copy: an Arabic line with a Latin brand dropped into it is read letter by
+    letter by an Arabic voice, and the word timings that drive the subtitles go
+    with it.
+    """
+    generic = (
         copy_tables.beats(language, style)
         if copy_tables.has_copy(language)
         else _BEATS.get(style, _BEATS[VideoStyle.CUSTOM])
     )
-    return options[index % len(options)]
+    subject = (subject or "").strip()
+    named = (
+        copy_tables.subject_beats(language, style)
+        if copy_tables.has_copy(language)
+        else _SUBJECT_BEATS.get(style, _SUBJECT_BEATS[VideoStyle.CUSTOM])
+    )
+
+    # Every other beat names the subject, starting with the second — the first
+    # card follows the hook, which has already said what this is.
+    if subject and named and index % 2 == 1 and scripts_match(subject, language):
+        template = named[(index // 2) % len(named)]
+        return template.replace("{subject}", _titlecase_subject(subject)).strip()
+    # Counted over the generic beats actually emitted, not over the scene index:
+    # indexing by the scene number skips every other entry, so a four-line table
+    # repeated after two uses instead of four.
+    return generic[(index // 2 if (subject and named) else index) % len(generic)]
 
 
 def default_caption(
@@ -314,7 +367,9 @@ def build_plan(request: PlanRequest) -> VideoPlan:
         elif slot.kind in ("cta", "outro"):
             content = cta_text
         else:
-            content = default_beat(request.style, index - 1, request.language)
+            content = default_beat(
+                request.style, index - 1, request.language, subject=request.subject
+            )
 
         texts: list[TextOverlay] = []
         if content:
@@ -352,6 +407,18 @@ def build_plan(request: PlanRequest) -> VideoPlan:
             )
         )
 
+    # Written for the network rather than from one template: what a TikTok
+    # caption does and what a Shorts description does are different jobs.
+    caption, caption_tags = social.compose(
+        platform=request.platform,
+        language=request.language,
+        style=request.style,
+        subject=subject,
+        hook=hook_text,
+        cta=cta_text,
+        description=request.description,
+    )
+
     plan = VideoPlan(
         format=request.format,
         fps=request.fps,
@@ -367,8 +434,8 @@ def build_plan(request: PlanRequest) -> VideoPlan:
         ),
         hook=hook_text,
         cta=cta_text,
-        caption=default_caption(request.style, subject, cta_text, request.language),
-        hashtags=default_hashtags(request.style, subject, request.language),
+        caption=caption,
+        hashtags=caption_tags,
         generated_by=request.generated_by,
         notes=preset.prompt_hint,
     )

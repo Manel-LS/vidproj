@@ -115,6 +115,39 @@ def match_voice(voices, language: Language | str) -> tuple[object | None, bool]:
     return None, False
 
 
+_ARABIC_RANGES = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
+
+
+def is_arabic_script(text: str) -> bool:
+    """True when the text is mostly written in Arabic letters.
+
+    "Mostly", not "contains": a French sentence quoting one Arabic word is still
+    French, and an Arabic sentence carrying a Latin brand name is still Arabic.
+    """
+    letters = [char for char in (text or "") if char.isalpha()]
+    if not letters:
+        return False
+    arabic = sum(
+        1 for char in letters if any(low <= ord(char) <= high for low, high in _ARABIC_RANGES)
+    )
+    return arabic * 2 > len(letters)
+
+
+def scripts_match(text: str, language: Language | str) -> bool:
+    """Whether `text` is written in the script the language is read in.
+
+    This is not pedantry about spelling. A Latin brand dropped into an Arabic line
+    is pronounced letter by letter by an Arabic voice, and because the subtitle
+    timings come from that same synthesis, the highlighting drifts with it. So the
+    planner uses this to decide whether to weave the subject into the copy, and
+    the caller can warn about it rather than let it surface as a bad recording.
+    """
+    text = (text or "").strip()
+    if not text:
+        return True
+    return is_arabic_script(text) == get_profile(language).rtl
+
+
 def language_support(voices) -> list[dict]:
     """Which languages the configured voice provider can actually speak.
 
