@@ -10,6 +10,7 @@ import {
   LayoutTemplate,
   LogOut,
   Menu,
+  Palette,
   Plus,
   Settings,
   Users,
@@ -24,6 +25,7 @@ const NAV = [
   { href: "/dashboard", label: "Projects", icon: FolderOpen },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
   { href: "/characters", label: "Characters", icon: Users },
+  { href: "/brand", label: "Brand", icon: Palette },
   { href: "/media", label: "Media", icon: Images },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

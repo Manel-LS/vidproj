@@ -258,6 +258,7 @@ export interface ProjectDetail extends ProjectSummary {
   topic: string;
   fps: number;
   subtitle_style: SubtitleStyleKey;
+  brand_kit_id: string | null;
   /** Drives the planner's wording, the default voice and the subtitle direction. */
   language: Language;
   rtl: boolean;
@@ -424,6 +425,31 @@ export interface Character {
 }
 
 export type CharacterDraft = Partial<Omit<Character, "id" | "created_at" | "updated_at">> & {
+  name: string;
+};
+
+export type LogoPosition = "top_left" | "top_right" | "bottom_left" | "bottom_right";
+
+export interface BrandKit {
+  id: string;
+  name: string;
+  brand_name: string;
+  slogan: string;
+  primary_color: string;
+  accent_color: string;
+  background_color: string;
+  font_family: string;
+  logo_media_id: string | null;
+  logo_url: string | null;
+  logo_position: LogoPosition;
+  /** Logo width as a fraction of the frame; above a third it stops being a watermark. */
+  logo_scale: number;
+  logo_opacity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BrandKitDraft = Partial<Omit<BrandKit, "id" | "created_at" | "updated_at">> & {
   name: string;
 };
 

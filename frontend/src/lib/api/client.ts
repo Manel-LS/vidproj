@@ -9,6 +9,8 @@ import type {
   ApiErrorBody,
   AudioTrack,
   AuthResponse,
+  BrandKit,
+  BrandKitDraft,
   Capabilities,
   Character,
   CharacterDraft,
@@ -430,6 +432,23 @@ export const api = {
       applied: boolean;
       generated_by: string;
     }>(`/projects/${projectId}/social`, { method: "POST", body: payload }),
+
+  // --------------------------------------------------------- brand kits --
+  listBrandKits: () => request<BrandKit[]>("/brand-kits"),
+
+  createBrandKit: (payload: BrandKitDraft) =>
+    request<BrandKit>("/brand-kits", { method: "POST", body: payload }),
+
+  updateBrandKit: (id: string, payload: Partial<BrandKitDraft>) =>
+    request<BrandKit>(`/brand-kits/${id}`, { method: "PATCH", body: payload }),
+
+  deleteBrandKit: (id: string) => request<void>(`/brand-kits/${id}`, { method: "DELETE" }),
+
+  uploadBrandLogo: (id: string, file: File, onProgress?: (p: number) => void) => {
+    const form = new FormData();
+    form.append("file", file);
+    return upload<BrandKit>(`/brand-kits/${id}/logo`, form, onProgress);
+  },
 
   // ---------------------------------------------------------- characters --
   listCharacters: () => request<Character[]>("/characters"),

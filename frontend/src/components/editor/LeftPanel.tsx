@@ -558,6 +558,12 @@ function AiTab({
           onChange={(characterId) => onUpdateProject({ character_id: characterId })}
         />
 
+        <BrandKitPicker
+          project={project}
+          disabled={busy}
+          onChange={(brandKitId) => onUpdateProject({ brand_kit_id: brandKitId })}
+        />
+
         <SubtitleStyleSelect
           project={project}
           options={options?.subtitle_styles}
@@ -722,6 +728,72 @@ function CharacterPicker({
         <p className="text-2xs italic text-faint">
           the same {project.character_description}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+
+/**
+ * Attaching a brand kit to this project.
+ *
+ * Fetched here rather than threaded through the project query, for the same
+ * reason as the character picker: a kit crosses projects. An explicit null
+ * detaches — the one field on the project endpoint where null means "clear it".
+ */
+function BrandKitPicker({
+  project,
+  disabled,
+  onChange,
+}: {
+  project: ProjectDetail;
+  disabled?: boolean;
+  onChange: (brandKitId: string | null) => void;
+}) {
+  const kits = useQuery({ queryKey: ["brand-kits"], queryFn: api.listBrandKits });
+  const items = kits.data ?? [];
+  const active = items.find((kit) => kit.id === project.brand_kit_id);
+
+  if (!items.length) {
+    return (
+      <div className="rounded-xl border border-dashed border-line px-3 py-2.5">
+        <p className="text-xs text-muted">
+          Set up a{" "}
+          <Link href="/brand" className="text-accent hover:underline">
+            brand kit
+          </Link>{" "}
+          to put your colours and logo on every video.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Select
+        label="Brand kit"
+        hint="Its colours and logo are applied when the video is rendered."
+        value={project.brand_kit_id ?? ""}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value || null)}
+        options={[
+          { value: "", label: "No brand kit" },
+          ...items.map((kit) => ({ value: kit.id, label: kit.name })),
+        ]}
+      />
+      {active ? (
+        <div className="flex items-center gap-2 text-2xs text-faint">
+          <span className="flex gap-1" aria-hidden>
+            {[active.primary_color, active.accent_color, active.background_color].map((colour) => (
+              <span
+                key={colour}
+                className="h-3 w-3 rounded-full border border-line"
+                style={{ backgroundColor: colour }}
+              />
+            ))}
+          </span>
+          {active.logo_url ? "logo burned in" : "no logo yet"}
+        </div>
       ) : null}
     </div>
   );
