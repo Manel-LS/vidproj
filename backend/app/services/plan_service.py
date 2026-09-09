@@ -21,6 +21,7 @@ from app.core.logging import get_logger
 from app.domain.enums import Language, GenerationMode, Platform, VideoFormat, VideoStyle
 from app.domain.language import get_profile, scripts_match
 from app.domain.plan import VideoPlan, validate_plan
+from app.domain.subtitles import SubtitleStyle
 from app.domain.planner import PlanRequest, build_plan
 from app.domain.templates import get_template
 from app.infrastructure.llm.base import LLMUnavailable, PlanBrief
@@ -70,6 +71,7 @@ def _build_request(
         language=Language(project.language),
         mode=GenerationMode(project.mode),
         platform=Platform(project.platform),
+        subtitle_style=SubtitleStyle(project.subtitle_style or "none"),
         audio_media_id=audio.media_id if audio else None,
     )
 

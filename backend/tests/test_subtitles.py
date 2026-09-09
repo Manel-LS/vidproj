@@ -207,3 +207,44 @@ def test_the_fallback_cards_do_not_overlap():
 def test_the_fallback_refuses_to_invent_anything_from_nothing():
     assert cues_from_sentences("", 10.0) == []
     assert cues_from_sentences("Du texte.", 0.0) == []
+
+
+# ------------------------------------------------- surviving a replan --
+
+API = "/api/v1"
+
+
+def test_replanning_does_not_switch_the_subtitles_off(client, auth, project_with_images):
+    """A regression, and a quiet one.
+
+    `apply_plan_to_project` writes the plan's subtitle style onto the project. The
+    built-in planner built its plan without one, so it defaulted to "none" — and
+    every "Generate" click silently reset a choice the user had made. Nothing in
+    the response said so; the subtitles simply stopped appearing.
+    """
+    project_id = project_with_images["id"]
+    client.patch(
+        f"{API}/projects/{project_id}", json={"subtitle_style": "tiktok"}, headers=auth["headers"]
+    )
+
+    response = client.post(
+        f"{API}/projects/{project_id}/plan/generate",
+        json={"use_ai": False, "apply": True},
+        headers=auth["headers"],
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["plan"]["subtitles"]["style"] == "tiktok"
+
+    detail = client.get(f"{API}/projects/{project_id}", headers=auth["headers"]).json()
+    assert detail["subtitle_style"] == "tiktok"
+
+
+def test_a_project_without_subtitles_stays_without_them(client, auth, project_with_images):
+    project_id = project_with_images["id"]
+    client.post(
+        f"{API}/projects/{project_id}/plan/generate",
+        json={"use_ai": False, "apply": True},
+        headers=auth["headers"],
+    )
+    detail = client.get(f"{API}/projects/{project_id}", headers=auth["headers"]).json()
+    assert detail["subtitle_style"] == "none"

@@ -33,6 +33,7 @@ from app.domain.insight import ImageInsight
 from app.domain.language import scripts_match
 from app.domain.plan import (
     MAX_TOTAL_SECONDS,
+    SubtitleSpec,
     MIN_SCENE_SECONDS,
     AudioPlan,
     PlanScene,
@@ -41,6 +42,7 @@ from app.domain.plan import (
     VoiceOverPlan,
 )
 from app.domain.styles import STYLE_PRESETS, StylePreset
+from app.domain.subtitles import SubtitleStyle
 from app.domain.templates import VideoTemplate, render_slot_text
 
 
@@ -64,6 +66,10 @@ class PlanRequest:
     #: Which network the post is for. The caption and the hashtags are written
     #: to that network's conventions, which differ enough to matter.
     platform: Platform = Platform.TIKTOK
+    #: Carried through so replanning does not silently switch the user's
+    #: subtitles off: `apply_plan_to_project` writes the plan's style onto the
+    #: project, so a plan built without it resets the choice to "none".
+    subtitle_style: SubtitleStyle = SubtitleStyle.NONE
     audio_media_id: str | None = None
     #: Optional per-scene copy supplied by an LLM: index -> list of lines.
     copy_lines: dict[int, list[str]] = field(default_factory=dict)
@@ -420,6 +426,7 @@ def build_plan(request: PlanRequest) -> VideoPlan:
     )
 
     plan = VideoPlan(
+        subtitles=SubtitleSpec(style=request.subtitle_style),
         format=request.format,
         fps=request.fps,
         style=request.style,
