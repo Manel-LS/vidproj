@@ -276,3 +276,137 @@ class KlingProvider(ImageToVideoProvider):
         if status.state is not GenerationState.COMPLETED or not status.video_url:
             raise ImageToVideoUnavailable("The Kling generation is not finished yet.")
         return _download(status.video_url, self.name)
+
+
+class ReplicateProvider(ImageToVideoProvider):
+    """Image-to-video through Replicate, which hosts many vendors' models.
+
+    The other three providers in this file each speak one fixed API. Replicate is a
+    marketplace, so the shape of `input` is decided by whichever model is configured
+    — and the models disagree on the most basic field of all: the start frame is
+    `image` on some, `first_frame_image` or `start_image` on others. Sending the wrong
+    one is a 422, and hard-coding a table of them would rot the first time a model is
+    swapped in `REPLICATE_I2V_MODEL`.
+
+    So the payload is built from the model's own published input schema, fetched once
+    and cached. Only fields the model actually declares are sent, which is what lets a
+    different model be configured without touching this class.
+    """
+
+    name = "replicate"
+    display_name = "Replicate"
+    supported_durations = (5.0, 10.0)
+    supported_aspect_ratios = ("9:16", "16:9", "1:1", "4:5")
+    BASE_URL = "https://api.replicate.com/v1"
+
+    #: Property names a model may use for the start frame, in the order we prefer them.
+    _IMAGE_FIELDS = ("image", "first_frame_image", "start_image", "input_image", "image_url")
+
+    def __init__(self, api_token: str = "", model: str = ""):
+        self._token = api_token or settings.replicate_api_token
+        self._model = model or settings.replicate_i2v_model
+        self._schema: dict | None = None
+
+    def is_available(self) -> bool:
+        return bool(self._token)
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+
+    def _input_properties(self) -> dict:
+        """The model's declared inputs, or an empty dict when they cannot be read.
+
+        A failure here is not fatal: an empty schema falls back to sending `image` and
+        `prompt`, which is what the majority of image-to-video models accept.
+        """
+        if self._schema is not None:
+            return self._schema
+        self._schema = {}
+        try:
+            with httpx.Client(timeout=30) as client:
+                response = client.get(f"{self.BASE_URL}/models/{self._model}", headers=self._headers())
+            if response.status_code < 400:
+                components = (response.json().get("latest_version") or {}).get("openapi_schema") or {}
+                self._schema = (
+                    components.get("components", {}).get("schemas", {}).get("Input", {}).get("properties", {})
+                )
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            logger.info("Replicate model schema unavailable for %s: %s", self._model, exc)
+        return self._schema
+
+    def _build_input(self, request: GenerationRequest) -> dict:
+        props = self._input_properties()
+        image_field = next((f for f in self._IMAGE_FIELDS if f in props), None) if props else None
+        payload: dict = {image_field or "image": _data_uri(request.image, request.image_content_type)}
+
+        if request.prompt and (not props or "prompt" in props):
+            payload["prompt"] = request.prompt[:500]
+        if "duration" in props:
+            payload["duration"] = int(
+                min(self.supported_durations, key=lambda d: abs(d - request.duration_seconds))
+            )
+        if "aspect_ratio" in props:
+            payload["aspect_ratio"] = request.aspect_ratio
+        if request.seed is not None and "seed" in props:
+            payload["seed"] = request.seed
+        return payload
+
+    def generate_video_from_image(self, request: GenerationRequest) -> str:
+        if not self.is_available():
+            raise ImageToVideoUnavailable(
+                "Replicate is selected but REPLICATE_API_TOKEN is not set."
+            )
+        try:
+            with httpx.Client(timeout=180) as client:
+                response = client.post(
+                    f"{self.BASE_URL}/models/{self._model}/predictions",
+                    headers=self._headers(),
+                    json={"input": self._build_input(request)},
+                )
+        except httpx.HTTPError as exc:
+            raise ImageToVideoUnavailable("Replicate is unreachable. Try again shortly.") from exc
+
+        if response.status_code >= 400:
+            logger.warning("Replicate submit failed %s: %s", response.status_code, response.text[:300])
+            raise ImageToVideoUnavailable(
+                f"Replicate rejected the generation request ({response.status_code})."
+            )
+        job_id = response.json().get("id")
+        if not job_id:
+            raise ImageToVideoUnavailable("Replicate did not return a job reference.")
+        return str(job_id)
+
+    def get_generation_status(self, job_id: str) -> GenerationStatus:
+        try:
+            with httpx.Client(timeout=60) as client:
+                response = client.get(f"{self.BASE_URL}/predictions/{job_id}", headers=self._headers())
+        except httpx.HTTPError as exc:
+            raise ImageToVideoUnavailable("Replicate is unreachable. Try again shortly.") from exc
+        if response.status_code >= 400:
+            return GenerationStatus(job_id, GenerationState.FAILED, error=f"HTTP {response.status_code}")
+        body = response.json()
+
+        state = {
+            "starting": GenerationState.QUEUED,
+            "processing": GenerationState.PROCESSING,
+            "succeeded": GenerationState.COMPLETED,
+            "failed": GenerationState.FAILED,
+            "canceled": GenerationState.FAILED,
+        }.get(str(body.get("status", "")), GenerationState.PROCESSING)
+
+        # Replicate returns either a single URL or a list of them, depending on the model.
+        output = body.get("output")
+        url = output[-1] if isinstance(output, list) and output else output
+        return GenerationStatus(
+            job_id=job_id,
+            state=state,
+            progress=100 if state is GenerationState.COMPLETED else 50,
+            error=str(body.get("error") or ""),
+            video_url=url if isinstance(url, str) else None,
+        )
+
+    def get_video_result(self, job_id: str) -> GeneratedVideo:
+        status = self.get_generation_status(job_id)
+        if status.state is not GenerationState.COMPLETED or not status.video_url:
+            raise ImageToVideoUnavailable("The Replicate generation is not finished yet.")
+        return _download(status.video_url, self.name)

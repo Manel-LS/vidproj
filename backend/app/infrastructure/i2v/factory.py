@@ -13,12 +13,18 @@ def get_i2v_provider() -> ImageToVideoProvider:
     if choice == "none":
         return NullImageToVideoProvider()
 
-    from app.infrastructure.i2v.providers import KlingProvider, LumaProvider, RunwayProvider
+    from app.infrastructure.i2v.providers import (
+        KlingProvider,
+        LumaProvider,
+        ReplicateProvider,
+        RunwayProvider,
+    )
 
     provider = {
         "runway": RunwayProvider,
         "luma": LumaProvider,
         "kling": KlingProvider,
+        "replicate": ReplicateProvider,
     }[choice]()
     return provider if provider.is_available() else NullImageToVideoProvider()
 

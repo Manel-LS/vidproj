@@ -240,6 +240,53 @@ def probe_duration(path: Path) -> float | None:
     return None
 
 
+#: Below these a file is a still image, not a clip — see `probe_video`.
+MIN_CLIP_FRAMES = 2
+MIN_CLIP_SECONDS = 0.2
+
+
+@dataclass(frozen=True)
+class VideoProbe:
+    """What a decoder could actually read out of a file claiming to be a video."""
+
+    duration: float
+    width: int
+    height: int
+
+
+def probe_video(path: Path) -> VideoProbe | None:
+    """Decode the file's header and return its real dimensions, or None.
+
+    Uploads are trusted only after a decoder has agreed they are what they claim,
+    exactly as images are re-decoded through Pillow. A container with no video
+    stream — an MP3 renamed to .mp4, a crafted file — returns None here rather
+    than reaching the filtergraph as a scene's `video_source`.
+    """
+    try:
+        result = subprocess.run(
+            [ffmpeg_path(), "-hide_banner", "-nostdin", "-i", str(path), "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    stream = re.search(r"Stream #\d+:\d+.*?: Video: .*?(\d{2,5})x(\d{2,5})", result.stderr)
+    if not stream:
+        return None
+
+    # A JPEG or PNG also decodes as a "video stream" — of exactly one frame. Counting
+    # the frames ffmpeg actually decoded is what separates a clip from a still, and a
+    # still smuggled in here would freeze the scene it was attached to.
+    frames = re.findall(r"frame=\s*(\d+)", result.stderr)
+    if not frames or int(frames[-1]) < MIN_CLIP_FRAMES:
+        return None
+
+    duration = probe_duration(path) or 0.0
+    if duration < MIN_CLIP_SECONDS:
+        return None
+    return VideoProbe(duration=duration, width=int(stream.group(1)), height=int(stream.group(2)))
+
+
 def extract_poster(video: Path, target: Path, *, at_seconds: float = 0.6) -> Path:
     """Grab a still from a rendered video to use as the project thumbnail."""
     target.parent.mkdir(parents=True, exist_ok=True)

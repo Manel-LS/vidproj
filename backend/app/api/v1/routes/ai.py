@@ -1,11 +1,12 @@
 """AI planning, voice-over, image generation, AI Motion and lip-sync endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, SessionDep, rate_limit
+from app.api.deps import CurrentUser, SessionDep, rate_limit, upload_rate_limit
 from app.api.serializers import serialize_project_detail, serialize_voice_over
+from app.core.config import settings
 from app.core.errors import ProviderUnavailableError, ValidationError
 from app.domain import social
 from app.domain.enums import (
@@ -32,7 +33,7 @@ from app.schemas.project import (
     VoiceOverResponse,
     VoiceOverUpdate,
 )
-from app.services import plan_service, project_service, scene_service
+from app.services import media_service, plan_service, project_service, scene_service
 from app.services.plan_assembler import project_to_plan
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["ai"], dependencies=[Depends(rate_limit)])
@@ -251,6 +252,74 @@ def generate_scene_image(
 
 
 # -------------------------------------------------------------- AI motion ----
+
+
+@router.post(
+    "/scenes/{scene_id}/motion-clip",
+    status_code=status.HTTP_201_CREATED,
+    summary="Attach a video clip generated elsewhere to one scene",
+    dependencies=[Depends(upload_rate_limit)],
+)
+def import_motion_clip(
+    project_id: str,
+    scene_id: str,
+    session: SessionDep,
+    user: CurrentUser,
+    file: UploadFile = File(..., description="MP4, MOV or WebM"),
+) -> dict:
+    """Play a clip the user brought, where a generated one would have gone.
+
+    AI Motion needs a paid provider, but the renderer's ability to play a clip in a
+    scene does not — it only ever needed a video to point at. This accepts one from
+    anywhere: a rented GPU, another tool, a camera. The scene then composites text,
+    music and voice-over over it exactly as it would over a generated shot, so the
+    rest of the pipeline cannot tell the difference and nothing downstream changes.
+    """
+    project = project_service.get_owned_project(session, project_id, user)
+    scene = scene_service.get_scene(session, project, scene_id)
+
+    data = media_service.read_upload(
+        file, max_bytes=settings.max_video_bytes, label=f"'{file.filename or 'clip'}'"
+    )
+    clip = media_service.add_motion_clip(
+        session,
+        project,
+        media_service.UploadPayload(
+            filename=file.filename or "motion-clip.mp4",
+            content_type=file.content_type or "video/mp4",
+            data=data,
+        ),
+    )
+
+    previous = (scene.ai_motion or {}).get("generated_media_id")
+    scene.ai_motion = {
+        "enabled": True,
+        "prompt": (scene.ai_motion or {}).get("prompt", ""),
+        # Recorded as `import` rather than a provider name: this clip was not generated
+        # here, and a later regeneration must not silently claim it was.
+        "provider": "import",
+        "generated_media_id": clip.id,
+        "job_reference": None,
+        "error": "",
+    }
+    project.mode = GenerationMode.AI_MOTION.value
+    session.commit()
+
+    # Only once the scene points at the new clip, so a failure above leaves the old one.
+    if previous and previous != clip.id:
+        old = session.get(type(clip), previous)
+        if old is not None:
+            media_service.delete_media(session, old)
+            session.commit()
+
+    return {
+        "scene_id": scene.id,
+        "media_id": clip.id,
+        "duration_seconds": clip.duration_seconds,
+        "width": clip.width,
+        "height": clip.height,
+        "message": "Clip attached. Render the project to see it in the timeline.",
+    }
 
 
 @router.post(

@@ -11,6 +11,7 @@ Every uploaded byte goes through the same gate:
 from __future__ import annotations
 
 import io
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from app.infrastructure.imaging.analyzer import (
     make_thumbnail,
     optimise_upload,
 )
-from app.infrastructure.render.ffmpeg import probe_duration
+from app.infrastructure.render.ffmpeg import probe_duration, probe_video
 from app.infrastructure.storage.base import StorageProvider, unique_key
 from app.infrastructure.storage.factory import get_storage
 from app.models import Media, Project
@@ -256,6 +257,64 @@ def store_generated_file(
     )
     session.add(media)
     session.flush()
+    return media
+
+
+def add_motion_clip(
+    session: Session,
+    project: Project,
+    payload: UploadPayload,
+    *,
+    storage: StorageProvider | None = None,
+) -> Media:
+    """Store a video clip produced outside this app, for a scene to play.
+
+    The render engine has always been able to play a clip in place of a still — that
+    is how a generated AI Motion shot reaches the timeline. This is the same door,
+    opened to a file the user brings: one generated on a rented GPU, or filmed.
+
+    Unlike an image there is nothing to re-encode it into safely, so the guarantee is
+    narrower and rests entirely on decoding it: a file whose header a decoder will not
+    read as a real, multi-frame video never reaches storage. The bytes we keep are the
+    user's own, so nothing here weakens the rule that no user string reaches ffmpeg —
+    the file is passed as an argv path, never interpolated into a filtergraph.
+    """
+    storage = storage or get_storage()
+
+    # probe_video needs a real path: ffmpeg cannot decode a container from a pipe
+    # without seeking, and a truncated read would pass a file that later fails mid-render.
+    suffix = Path(payload.filename or "clip.mp4").suffix[:8] or ".mp4"
+    tmp = Path(tempfile.mkdtemp(prefix="rc-clip-")) / f"upload{suffix}"
+    try:
+        tmp.write_bytes(payload.data)
+        probe = probe_video(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+        tmp.parent.rmdir()
+
+    if probe is None:
+        raise ValidationError(
+            "That file is not a readable video. Upload an MP4, MOV or WebM clip — "
+            "a still image will not do, a scene already animates one for you."
+        )
+
+    media = store_generated_file(
+        session,
+        project,
+        data=payload.data,
+        filename=payload.filename or "motion-clip.mp4",
+        content_type=payload.content_type or "video/mp4",
+        kind=MediaKind.VIDEO,
+        source="ai_motion",
+        storage=storage,
+    )
+    media.width, media.height = probe.width, probe.height
+    media.duration_seconds = probe.duration
+    session.flush()
+    logger.info(
+        "Imported motion clip %s for project %s (%.1fs, %dx%d)",
+        media.id, project.id, probe.duration, probe.width, probe.height,
+    )
     return media
 
 

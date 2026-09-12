@@ -81,6 +81,13 @@ class Settings(BaseSettings):
         "audio/x-wav",
         "audio/wave",
     ]
+    #: An imported AI Motion clip: a few seconds of 1080p, so far above the image cap.
+    max_video_bytes: int = 100 * 1024 * 1024
+    allowed_video_mimes: list[str] = [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+    ]
     image_max_dimension: int = 2560  # uploads are downscaled to this on the long edge
 
     # ---- Rendering ---------------------------------------------------------
@@ -154,7 +161,10 @@ class Settings(BaseSettings):
     lipsync_poll_interval_seconds: float = 5.0
     lipsync_timeout_seconds: int = 900
 
-    i2v_provider: Literal["none", "runway", "kling", "luma"] = "none"
+    i2v_provider: Literal["none", "runway", "kling", "luma", "replicate"] = "none"
+    #: Replicate hosts many vendors' models; the payload is built from whichever
+    #: one this names, by reading its published input schema.
+    replicate_i2v_model: str = "bytedance/seedance-1-lite"
     runway_api_key: str = ""
     runway_model: str = "gen4_turbo"
     kling_access_key: str = ""
@@ -167,7 +177,10 @@ class Settings(BaseSettings):
     seed_demo_user_email: str = "demo@reelcraft.app"
     seed_demo_user_password: str = "demo1234"
 
-    @field_validator("cors_origins", "allowed_image_mimes", "allowed_audio_mimes", mode="before")
+    @field_validator(
+        "cors_origins", "allowed_image_mimes", "allowed_audio_mimes", "allowed_video_mimes",
+        mode="before",
+    )
     @classmethod
     def _split_csv(cls, value):
         if isinstance(value, str):
